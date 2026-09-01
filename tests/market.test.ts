@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest'
-import { argvProfile, attachedToTerminal, installSpec, modulePathProfile, normalizeCatalog, pluginArgs, quoteCmdArg, resolveProfile, restartCommand, spawnEnv, trustedRestartRequest } from '../src/index.js'
+import { Config, apply, argvProfile, attachedToTerminal, installSpec, modulePathProfile, normalizeCatalog, pluginArgs, quoteCmdArg, resolveProfile, restartCommand, spawnEnv, trustedRestartRequest } from '../src/index.js'
 import { MarketController, PROBE_INTERVAL_MS, filterItems, installCommand, versionNewer } from '../src/client/index.js'
 import { failureText, requestInstall, requestRemove } from '../src/client/store.js'
 import type { CatalogResponse, InstallResponse, MarketItem, RestartResponse } from '../src/index.js'
@@ -583,6 +583,71 @@ describe('which profile the panel decides it is running in', () => {
     // node_modules, but not under a profiles/<name> parent.
     expect(modulePathProfile(url('/Users/x/app/node_modules/dsh-research/lib/index.js'))).toBeUndefined()
     expect(modulePathProfile('not-a-url')).toBeUndefined()
+  })
+})
+
+describe('the routes the plugin puts on the web server', () => {
+  /**
+   * Mount the plugin against a route table the caller owns.
+   *
+   * The web server owns that table, not the plugin, so sharing one across two
+   * mounts is what makes a remount collision reproducible.
+   * @param routes - the host's route table.
+   * @param config - plugin config; defaults come from the schema.
+   * @returns a disposer that tears the fiber down the way cordis does on unload.
+   */
+  function mount(routes: Map<string, unknown>, config: Partial<Config> = {}): () => void {
+    const effects: (() => void)[] = []
+    const webServer = {
+      register(route: { kind: string; path: string }) {
+        if (routes.has(route.path)) throw new Error(`webserver: duplicate ${route.kind} route "${route.path}"`)
+        routes.set(route.path, route)
+        return () => routes.delete(route.path)
+      },
+    }
+    const ctx = {
+      effect(body: () => (() => void) | void) {
+        const disposer = body()
+        if (typeof disposer === 'function') effects.push(disposer)
+        return () => undefined
+      },
+      inject(_deps: string[], callback: (child: unknown) => void) {
+        callback({ ...ctx, webServer })
+      },
+    } as unknown as Parameters<typeof apply>[0]
+    apply(ctx, new Config(config))
+    return () => { while (effects.length > 0) effects.pop()?.() }
+  }
+
+  it('gives every route back when the fiber unloads', () => {
+    // A discarded disposer left the dead fiber's routes registered, so the next
+    // mount died on `webserver: duplicate exact route "…"`. Four routes here, and
+    // the helper they now share means none of them can drop it again.
+    const host = new Map<string, unknown>()
+    const dispose = mount(host)
+    expect([...host.keys()]).toEqual([
+      '/research-market/catalog', '/research-market/install',
+      '/research-market/remove', '/research-market/restart',
+    ])
+    dispose()
+    expect(host.size).toBe(0)
+    expect(() => mount(host)).not.toThrow()
+  })
+
+  it('survives a remount, which is how a hot upgrade lands', () => {
+    const host = new Map<string, unknown>()
+    mount(host)()
+    mount(host)()
+    expect(() => mount(host)).not.toThrow()
+  })
+
+  it('registers only what the config allows', () => {
+    const readOnly = new Map<string, unknown>()
+    mount(readOnly, { allowInstall: false })
+    expect([...readOnly.keys()]).toEqual(['/research-market/catalog'])
+    const noRestart = new Map<string, unknown>()
+    mount(noRestart, { allowRestart: false })
+    expect([...noRestart.keys()]).not.toContain('/research-market/restart')
   })
 })
 

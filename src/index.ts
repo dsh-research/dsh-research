@@ -20,7 +20,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { Context } from '@deepseek-ai/cordis'
 import Schema from '@deepseek-ai/schemastery'
 // Type-only: the Context merge declaring `ctx.webServer`.
-import type {} from '@deepseek-ai/dsh-host-webserver'
+import type { WebRoute } from '@deepseek-ai/dsh-host-webserver'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { homedir } from 'node:os'
@@ -99,7 +99,18 @@ export function apply(ctx: Context, config: Config): void {
   const profile = resolveProfile(resolved.profile)
 
   ctx.inject(['webServer'], (webCtx) => {
-    webCtx.webServer.register({
+    // The web server owns one route table and throws on a duplicate (kind, path),
+    // and `register` returns the disposer that removes the route. Give that
+    // disposer to the fiber: a hot remount (dshmarket toggling a plugin, a
+    // settings change) tears this fiber down and builds a new one against the
+    // same table, and a discarded disposer leaves the dead fiber's routes behind
+    // for the new one to collide with. Every route goes through here so none can
+    // drop it.
+    const route = (spec: WebRoute): void => {
+      webCtx.effect(() => webCtx.webServer.register(spec), `webServer.register(${spec.path})`)
+    }
+
+    route({
       kind: 'exact',
       path: CATALOG_ROUTE,
       handler: async (request: IncomingMessage, response: ServerResponse) => {
@@ -142,7 +153,7 @@ export function apply(ctx: Context, config: Config): void {
     })
 
     if (!resolved.allowInstall) return
-    webCtx.webServer.register({
+    route({
       kind: 'exact',
       path: INSTALL_ROUTE,
       handler: async (request: IncomingMessage, response: ServerResponse) => {
@@ -202,7 +213,7 @@ export function apply(ctx: Context, config: Config): void {
       },
     })
 
-    webCtx.webServer.register({
+    route({
       kind: 'exact',
       path: REMOVE_ROUTE,
       handler: async (request: IncomingMessage, response: ServerResponse) => {
@@ -247,7 +258,7 @@ export function apply(ctx: Context, config: Config): void {
     })
 
     if (!resolved.allowRestart) return
-    webCtx.webServer.register({
+    route({
       kind: 'exact',
       path: RESTART_ROUTE,
       handler: (request: IncomingMessage, response: ServerResponse) => {
