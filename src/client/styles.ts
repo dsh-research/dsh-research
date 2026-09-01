@@ -57,6 +57,7 @@ export const cls = {
   link: `${P}-link`,
   note: `${P}-note`,
   warn: `${P}-warn`,
+  warnOutput: `${P}-warn-output`,
   empty: `${P}-empty`,
   disclosure: `${P}-disclosure`,
   overlay: `${P}-overlay`,
@@ -122,6 +123,9 @@ ${'' /* bg-base sits a step deeper than the settings page's own surface in
 .${cls.note},.${cls.empty}{margin:0;font-size:13px;color:var(--dsw-alias-label-tertiary,#9ca3af)}
 .${cls.empty}{padding:28px 0;text-align:center}
 .${cls.warn}{margin:0;font-size:12.5px;color:var(--dsw-alias-state-warn-primary,#b45309);overflow-wrap:anywhere}
+/* The CLI tail: newlines kept, height capped so a long pnpm dump cannot push the
+   card's buttons off screen, and scrollable so all of it stays reachable. */
+.${cls.warnOutput}{margin:4px 0 0;padding:6px 8px;max-height:180px;overflow:auto;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11.5px;line-height:1.45;white-space:pre-wrap;overflow-wrap:anywhere;color:var(--dsw-alias-label-secondary,#6b7280);background:var(--dsw-alias-bg-layer-3,rgba(127,127,127,.08));border-radius:6px}
 .${cls.disclosure}{margin:0;font-size:12px;line-height:1.6;color:var(--dsw-alias-label-tertiary,#9ca3af);padding-top:4px;border-top:1px solid var(--dsw-alias-border-l2,#e5e7eb)}
 .${cls.overlay}{position:fixed;inset:0;z-index:60;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;padding:24px}
 .${cls.dialog}{width:min(460px,100%);max-height:80vh;overflow-y:auto;background:var(--dsw-alias-bg-layer-1,#ffffff);border:1px solid var(--dsw-alias-border-l2,#e5e7eb);border-radius:14px;padding:20px 22px;display:flex;flex-direction:column;gap:14px;box-shadow:0 18px 48px rgba(0,0,0,.4)}

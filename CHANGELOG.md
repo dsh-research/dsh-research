@@ -2,6 +2,14 @@
 
 All notable changes to `dsh-research` are recorded here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [SemVer](https://semver.org/).
 
+## [0.4.3] - 2026-09-01
+
+### Fixed
+- A failed install or removal now shows the CLI's own diagnosis, not just its exit code. The host was already collecting pnpm's explanation and sending it with its 500; the client threw it away on arrival, so every failure on a card read `dsh plugin add exited 1` with nothing a person could act on — an unreachable registry, a version the mirror had not synced yet, and a package missing from the profile all looked identical. Two independent drop points are closed: the `!res.ok` branch rebuilt the answer from `error` alone, and the removal path never read `output` at all. Both paths now share one text builder so neither can drop it again.
+
+### Changed
+- The CLI tail renders in its own monospace block under the headline rather than being folded into the sentence, height-capped and scrollable so a long pnpm dump cannot push the card's buttons off screen.
+
 ## [0.4.2] - 2026-08-18
 
 ### Changed

@@ -1,6 +1,7 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 import { argvProfile, attachedToTerminal, installSpec, normalizeCatalog, pluginArgs, quoteCmdArg, restartCommand, spawnEnv, trustedRestartRequest } from '../src/index.js'
 import { MarketController, PROBE_INTERVAL_MS, filterItems, installCommand, versionNewer } from '../src/client/index.js'
+import { failureText, requestInstall, requestRemove } from '../src/client/store.js'
 import type { CatalogResponse, InstallResponse, MarketItem, RestartResponse } from '../src/index.js'
 
 const PAGE = {
@@ -254,6 +255,25 @@ describe('removal and restart', () => {
     await controller.uninstall(controller.state().items[0]!)
     expect(controller.isInstalled(controller.state().items[0]!)).toBe(true)
     expect(controller.state().failures['dsh-ai4scholar']).toContain('exited 1')
+  })
+
+  it('shows the CLI diagnosis when removal fails, not just the exit code', async () => {
+    // The remove path used to keep only `error`, so an uninstall that failed
+    // because the package was not in the profile reported "exited 1" and
+    // nothing a user could act on.
+    const controller = new MarketController(
+      () => Promise.resolve(answer({ installed: ['dsh-ai4scholar'] })),
+      () => Promise.resolve({ ok: true, npm: 'dsh-ai4scholar' }),
+      (npm) => Promise.resolve({
+        ok: false, npm, error: 'dsh plugin remove exited 1',
+        output: "ERR_PNPM_CANNOT_REMOVE_MISSING_DEPS  Cannot remove 'dsh-ai4scholar': project has no dependencies of any kind",
+      }),
+    )
+    await controller.refresh()
+    await controller.uninstall(controller.state().items[0]!)
+    const shown = controller.state().failures['dsh-ai4scholar'] ?? ''
+    expect(shown).toContain('dsh plugin remove exited 1')
+    expect(shown).toContain('ERR_PNPM_CANNOT_REMOVE_MISSING_DEPS')
   })
 
   it('does not offer a second restart while one is under way', async () => {
@@ -528,5 +548,73 @@ describe('card imagery and dates', () => {
       items: [{ ...PAGE.items[0]!, icon: `data:image/png;base64,${'A'.repeat(70_000)}` }],
     }
     expect(normalizeCatalog(huge).items[0]!.icon).toBeUndefined()
+  })
+})
+
+describe('what a failed mutation carries back over the wire', () => {
+  const realFetch = globalThis.fetch
+  afterEach(() => { globalThis.fetch = realFetch })
+
+  /** Answer a mutation route the way the host does when the CLI exits non-zero. */
+  function hostFails(payload: Record<string, unknown>, status = 500): string[] {
+    const seen: string[] = []
+    globalThis.fetch = ((input: string) => {
+      seen.push(String(input))
+      return Promise.resolve(new Response(JSON.stringify(payload), {
+        status, headers: { 'content-type': 'application/json' },
+      }))
+    }) as typeof globalThis.fetch
+    return seen
+  }
+
+  it('keeps the pnpm output the host sent with its 500', async () => {
+    // The `!res.ok` branch used to rebuild the answer from `error` alone. That
+    // is the single bug that reduced every failure on the card to a bare
+    // "dsh plugin add exited 1" — the host collected the diagnosis and the
+    // client threw it away on arrival.
+    const seen = hostFails({
+      ok: false, npm: 'dsh-ai4scholar',
+      error: 'dsh plugin add exited 1',
+      output: 'ERR_PNPM_FETCH_404  GET https://registry.npmmirror.com/dsh-ai4scholar: Not Found',
+    })
+    const answer = await requestInstall('dsh-ai4scholar')
+    expect(seen).toEqual(['/research-market/install'])
+    expect(answer.ok).toBe(false)
+    expect(answer.error).toBe('dsh plugin add exited 1')
+    expect(answer.output).toContain('ERR_PNPM_FETCH_404')
+    expect(failureText(answer, 'install failed')).toContain('ERR_PNPM_FETCH_404')
+  })
+
+  it('keeps it on the remove route too', async () => {
+    const seen = hostFails({
+      ok: false, npm: 'dsh-ai4scholar',
+      error: 'dsh plugin remove exited 1',
+      output: "ERR_PNPM_CANNOT_REMOVE_MISSING_DEPS  Cannot remove 'dsh-ai4scholar'",
+    })
+    const answer = await requestRemove('dsh-ai4scholar')
+    expect(seen).toEqual(['/research-market/remove'])
+    expect(answer.output).toContain('ERR_PNPM_CANNOT_REMOVE_MISSING_DEPS')
+  })
+
+  it('names the status when the host answers 500 with no error string', async () => {
+    hostFails({ ok: false, npm: 'dsh-ai4scholar' }, 502)
+    const answer = await requestInstall('dsh-ai4scholar')
+    expect(answer.error).toBe('route answered 502')
+    expect(answer.output).toBeUndefined()
+  })
+})
+
+describe('failure text', () => {
+  it('puts the CLI tail on its own line under the headline', () => {
+    expect(failureText({ ok: false, npm: 'p', error: 'exited 1', output: 'why\nit broke' }, 'fallback'))
+      .toBe('exited 1\nwhy\nit broke')
+  })
+
+  it('falls back to a headline when the host sent no error', () => {
+    expect(failureText({ ok: false, npm: 'p' }, 'install failed')).toBe('install failed')
+  })
+
+  it('does not leave a dangling newline for blank output', () => {
+    expect(failureText({ ok: false, npm: 'p', error: 'exited 1', output: '   \n ' }, 'x')).toBe('exited 1')
   })
 })

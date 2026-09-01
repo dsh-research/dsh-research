@@ -319,7 +319,21 @@ export function MarketSection(props: MarketSectionProps): JSX.Element {
                           ? <p className={cls.detail}>{item.detail}</p>
                           : <button type="button" className={cls.more} onClick={() => setOpened(item.id)}>{t('more')}</button>
                       )}
-                      {failure !== undefined && <p className={cls.warn}>{t('failed')}: {failure}</p>}
+                      {failure !== undefined && (() => {
+                        // Headline inline, CLI tail in its own block: the tail is
+                        // multi-line pnpm output, and collapsing it into the
+                        // sentence is what made a failure unreadable even once
+                        // the text reached the card.
+                        const split = failure.indexOf('\n')
+                        const headline = split === -1 ? failure : failure.slice(0, split)
+                        const tail = split === -1 ? undefined : failure.slice(split + 1)
+                        return (
+                          <>
+                            <p className={cls.warn}>{t('failed')}: {headline}</p>
+                            {tail !== undefined && <pre className={cls.warnOutput}>{tail}</pre>}
+                          </>
+                        )
+                      })()}
                       {busy && (
                         <div className={cls.progress}>
                           <p className={cls.progressText}>

@@ -100,8 +100,38 @@ async function postPackage(route: string, npm: string): Promise<InstallResponse>
     body: JSON.stringify({ npm }),
   })
   const body = await res.json() as InstallResponse & { error?: string }
-  if (!res.ok) return { ok: false, npm, error: body.error ?? `route answered ${res.status}` }
+  // A failed mutation answers 500 with both `error` and `output`. Keeping only
+  // `error` here is what reduced every failure on the card to a bare
+  // "dsh plugin add exited 1": the pnpm diagnosis that says *why* — an
+  // unreachable registry, a version the mirror has not synced, a package not in
+  // the profile — was collected by the host, sent over the wire, and dropped on
+  // arrival. `output` is forwarded so the card can show what actually broke.
+  if (!res.ok) {
+    return {
+      ok: false,
+      npm,
+      error: body.error ?? `route answered ${res.status}`,
+      ...(body.output === undefined ? {} : { output: body.output }),
+    }
+  }
   return body
+}
+
+/**
+ * The text a failed mutation shows: the headline, then the CLI tail beneath it.
+ *
+ * Both mutation paths build it here so neither can quietly drop the diagnosis.
+ * The remove path used to take only `error`, which is why an uninstall that
+ * failed because the package was not in the profile reported nothing but
+ * "dsh plugin remove exited 1".
+ * @param answer - the host's reply.
+ * @param fallback - headline for a reply that carries no error string.
+ * @returns headline, and the output after a blank line when there is any.
+ */
+export function failureText(answer: InstallResponse, fallback: string): string {
+  const headline = answer.error ?? fallback
+  const tail = answer.output?.trim()
+  return tail === undefined || tail === '' ? headline : `${headline}\n${tail}`
 }
 
 /** Default installer: `POST /research-market/install` on the page origin. */
@@ -270,7 +300,7 @@ export class MarketController {
         }
       : {
           ...after,
-          failures: { ...after.failures, [npm]: `${answer.error ?? 'install failed'}${answer.output === undefined ? '' : `\n${answer.output}`}` },
+          failures: { ...after.failures, [npm]: failureText(answer, 'install failed') },
         })
   }
 
@@ -384,7 +414,7 @@ export class MarketController {
           installed: after.installed.filter((name) => name !== npm),
           pendingRestart: [...after.pendingRestart.filter((name) => name !== npm), npm],
         }
-      : { ...after, failures: { ...after.failures, [npm]: answer.error ?? 'remove failed' } })
+      : { ...after, failures: { ...after.failures, [npm]: failureText(answer, 'remove failed') } })
   }
 
   /**
