@@ -51,6 +51,15 @@ jobs:
         run: |
           set -euo pipefail
           pkgs=$(node -e 'const p=require("./package.json");console.log(Object.keys(p.devDependencies).filter(k=>k.startsWith("@deepseek-ai/")).map(k=>k+"@next").join(" "))')
-          pnpm add -D $pkgs
+          # auto-install-peers off, or this step fails before it tests anything.
+          # pnpm 10 turns it on by default: it installs a package's *optional*
+          # peers too, and widens the range while doing it — dsh-subagent@next
+          # asks for `dsh-sandbox@^0.1.1-rc.2`, pnpm resolves
+          # `>=0.1.1 <0.2.0-0`, and only prereleases of 0.1.x are published, so
+          # install dies with ERR_PNPM_NO_MATCHING_VERSION. That is an artifact
+          # of a prerelease train, not the upstream drift this canary exists to
+          # catch, and it had been reporting red since 2026-08-24 for that
+          # reason alone.
+          pnpm add -D $pkgs --config.auto-install-peers=false
       - run: pnpm run typecheck
       - run: pnpm test
