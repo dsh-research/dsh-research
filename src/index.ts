@@ -26,12 +26,12 @@ import { join } from 'node:path'
 import { homedir } from 'node:os'
 import { CATALOG_ROUTE, CATALOG_URL, CATALOG_URL_ZH, INSTALL_ROUTE, REMOVE_ROUTE, RESTART_ROUTE } from './shared/route.js'
 import type { CatalogPage, CatalogResponse, InstallResponse, MarketItem, RestartResponse } from './shared/route.js'
-import { argvProfile, attachedToTerminal, installPackage, installSpec, removePackage, restartCommand, scheduleRestart, trustedRestartRequest } from './install.js'
+import { attachedToTerminal, installPackage, installSpec, removePackage, resolveProfile, restartCommand, scheduleRestart, trustedRestartRequest } from './install.js'
 
 export { CATALOG_ROUTE, CATALOG_URL, CATALOG_URL_ZH, INSTALL_ROUTE, REMOVE_ROUTE, RESTART_ROUTE } from './shared/route.js'
 export type { CatalogPage, CatalogResponse, InstallResponse, MarketItem, RestartResponse } from './shared/route.js'
 export { normalizeCatalog } from './catalog.js'
-export { argvProfile, attachedToTerminal, dshArgv, installPackage, installSpec, pluginArgs, profileDir, quoteCmdArg, removePackage, restartCommand, scheduleRestart, spawnEnv, trustedRestartRequest } from './install.js'
+export { argvProfile, attachedToTerminal, dshArgv, installPackage, installSpec, modulePathProfile, pluginArgs, profileDir, quoteCmdArg, removePackage, resolveProfile, restartCommand, scheduleRestart, spawnEnv, trustedRestartRequest } from './install.js'
 export type { DshInvocation, InstallOutcome, RestartOutcome } from './install.js'
 
 /** Cordis plugin name used by loader diagnostics. */
@@ -96,7 +96,7 @@ export function apply(ctx: Context, config: Config): void {
   // One mutation at a time: two concurrent `dsh plugin add` runs race on the
   // same package.json and can leave the profile half-written.
   let installing: string | undefined
-  const profile = resolved.profile ?? argvProfile() ?? 'web'
+  const profile = resolveProfile(resolved.profile)
 
   ctx.inject(['webServer'], (webCtx) => {
     webCtx.webServer.register({

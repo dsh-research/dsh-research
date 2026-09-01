@@ -5,6 +5,7 @@ All notable changes to `dsh-research` are recorded here. The format follows [Kee
 ## [0.4.3] - 2026-09-01
 
 ### Fixed
+- The panel now acts on the profile it is actually running in. DSH Desktop boots its plugin host in-process and passes no `--profile`, so the old fallback resolved to `web` while the app was running `desktop`: the cards read one composition's installed versions and installed into a different one. The profile is now also derived from the path this plugin was loaded out of — `<DSH_HOME>/profiles/<name>/node_modules/…` names it — which needs no cooperation from the app or the CLI. A linked checkout is deliberately not matched, so a developer's working copy still falls back rather than guessing.
 - A failed install or removal now shows the CLI's own diagnosis, not just its exit code. The host was already collecting pnpm's explanation and sending it with its 500; the client threw it away on arrival, so every failure on a card read `dsh plugin add exited 1` with nothing a person could act on — an unreachable registry, a version the mirror had not synced yet, and a package missing from the profile all looked identical. Two independent drop points are closed: the `!res.ok` branch rebuilt the answer from `error` alone, and the removal path never read `output` at all. Both paths now share one text builder so neither can drop it again.
 
 ### Changed

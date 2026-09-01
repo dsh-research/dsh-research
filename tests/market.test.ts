@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest'
-import { argvProfile, attachedToTerminal, installSpec, normalizeCatalog, pluginArgs, quoteCmdArg, restartCommand, spawnEnv, trustedRestartRequest } from '../src/index.js'
+import { argvProfile, attachedToTerminal, installSpec, modulePathProfile, normalizeCatalog, pluginArgs, quoteCmdArg, resolveProfile, restartCommand, spawnEnv, trustedRestartRequest } from '../src/index.js'
 import { MarketController, PROBE_INTERVAL_MS, filterItems, installCommand, versionNewer } from '../src/client/index.js'
 import { failureText, requestInstall, requestRemove } from '../src/client/store.js'
 import type { CatalogResponse, InstallResponse, MarketItem, RestartResponse } from '../src/index.js'
@@ -548,6 +548,67 @@ describe('card imagery and dates', () => {
       items: [{ ...PAGE.items[0]!, icon: `data:image/png;base64,${'A'.repeat(70_000)}` }],
     }
     expect(normalizeCatalog(huge).items[0]!.icon).toBeUndefined()
+  })
+})
+
+describe('which profile the panel decides it is running in', () => {
+  const url = (p: string) => `file://${p}`
+
+  it('reads the profile out of the path it was loaded from', () => {
+    expect(modulePathProfile(url('/Users/x/.dsh/profiles/desktop/node_modules/dsh-research/lib/index.js')))
+      .toBe('desktop')
+    expect(modulePathProfile(url('/Users/x/.dsh/profiles/web/node_modules/dsh-research/lib/index.js')))
+      .toBe('web')
+  })
+
+  it('covers the case argv cannot: DSH Desktop boots its host with no --profile', () => {
+    // The app's own argv is literally just the binary, so argvProfile has
+    // nothing to read and the old `?? 'web'` fallback pointed the panel at the
+    // wrong profile entirely — reading web's installed versions and installing
+    // into web while the app ran desktop.
+    expect(argvProfile(['/Applications/DSH Desktop.app/Contents/MacOS/DSH Desktop'])).toBeUndefined()
+    expect(modulePathProfile(url('/Users/x/.dsh/profiles/desktop/node_modules/dsh-research/lib/index.js')))
+      .toBe('desktop')
+  })
+
+  it('takes the rightmost node_modules, so a nested copy still names the profile', () => {
+    expect(modulePathProfile(url('/x/.dsh/profiles/desktop/node_modules/a/node_modules/dsh-research/lib/index.js')))
+      .toBe('desktop')
+  })
+
+  it('declines to guess outside a profile, so the caller can fall back', () => {
+    // A linked checkout, which is a real way this plugin runs. Guessing here
+    // would mutate a profile the developer is not looking at.
+    expect(modulePathProfile(url('/Users/x/ai4s/dsh-research/lib/index.js'))).toBeUndefined()
+    // node_modules, but not under a profiles/<name> parent.
+    expect(modulePathProfile(url('/Users/x/app/node_modules/dsh-research/lib/index.js'))).toBeUndefined()
+    expect(modulePathProfile('not-a-url')).toBeUndefined()
+  })
+})
+
+describe('the order the profile sources are trusted in', () => {
+  const desktop = 'file:///Users/x/.dsh/profiles/desktop/node_modules/dsh-research/lib/index.js'
+
+  it('lets an explicit config beat everything', () => {
+    expect(resolveProfile('mine', 'booted', modulePathProfile(desktop))).toBe('mine')
+  })
+
+  it('prefers the booted profile over the load path', () => {
+    // The CLI does pass `--profile`, and a linked plugin can be loaded from a
+    // path that names some other profile. The running one wins.
+    expect(resolveProfile(undefined, 'booted', modulePathProfile(desktop))).toBe('booted')
+  })
+
+  it('falls back to the load path, which is all DSH Desktop gives us', () => {
+    // This is the wiring the bug lived in: the app boots its host in-process
+    // with no argv, so without the load path the chain fell through to `web`
+    // and the panel read and mutated a profile the app was not running.
+    expect(resolveProfile(undefined, argvProfile(['/Applications/DSH Desktop.app/Contents/MacOS/DSH Desktop']), modulePathProfile(desktop)))
+      .toBe('desktop')
+  })
+
+  it('lands on web only when no source knows', () => {
+    expect(resolveProfile(undefined, undefined, undefined)).toBe('web')
   })
 })
 

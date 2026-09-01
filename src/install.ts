@@ -25,7 +25,8 @@ import { existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import type { ChildProcess } from 'node:child_process'
 import { homedir } from 'node:os'
-import { basename, dirname, join, resolve } from 'node:path'
+import { basename, dirname, join, resolve, sep } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 /** Longest an install may run before it is killed. */
 export const INSTALL_TIMEOUT_MS = 10 * 60 * 1000
@@ -227,6 +228,61 @@ export function argvProfile(argv: readonly string[] = process.argv): string | un
   const flag = argv.indexOf('--profile')
   const value = flag === -1 ? undefined : argv[flag + 1]
   return value !== undefined && !value.startsWith('-') ? value : undefined
+}
+
+/**
+ * The profile the panel reads and mutates, in order of authority.
+ *
+ * The load-path source is not a nicety. DSH Desktop boots its Profile Host
+ * in-process and passes no `--profile` at all, so `argvProfile` returns
+ * undefined and a bare `?? 'web'` fallback sent every card read and every
+ * install to `web` while the app was running `desktop`: the panel showed one
+ * composition's installed versions and mutated a different one.
+ * @param configured - the plugin's `profile` config, if set.
+ * @param fromArgv - the booted profile from argv.
+ * @param fromPath - the profile this module was loaded out of.
+ * @returns the profile name, defaulting to `web` when nothing else knows.
+ */
+export function resolveProfile(
+  configured: string | undefined,
+  fromArgv: string | undefined = argvProfile(),
+  fromPath: string | undefined = modulePathProfile(),
+): string {
+  return configured ?? fromArgv ?? fromPath ?? 'web'
+}
+
+/**
+ * The profile whose `node_modules` this very file was loaded out of.
+ *
+ * A plugin always lives at `<DSH_HOME>/profiles/<name>/node_modules/<pkg>/…`,
+ * so the loaded path names the profile that loaded it. That holds for the
+ * desktop app and the CLI alike, and needs no cooperation from either.
+ *
+ * A linked checkout is deliberately not matched: its path has no
+ * `profiles/<name>/node_modules` segment, so this returns undefined and the
+ * caller falls back rather than guessing from a working directory.
+ * @param url - module URL to read; injectable for tests.
+ * @returns the profile name, or `undefined` when the path is not inside one.
+ */
+export function modulePathProfile(url: string = import.meta.url): string | undefined {
+  let path: string
+  try {
+    path = fileURLToPath(url)
+  } catch {
+    return undefined
+  }
+  const parts = path.split(sep)
+  // Walk from the right: the nearest `node_modules` whose parent sits directly
+  // under a `profiles` directory. Rightmost, because a nested dependency's
+  // path can carry more than one `node_modules`.
+  for (let i = parts.length - 1; i > 1; i -= 1) {
+    if (parts[i] !== 'node_modules') continue
+    if (parts[i - 2] !== 'profiles') continue
+    const name = parts[i - 1]
+    if (name === undefined || name === '') return undefined
+    return name
+  }
+  return undefined
 }
 
 /**
