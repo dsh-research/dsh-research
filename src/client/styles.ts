@@ -147,11 +147,15 @@ ${'' /* bg-base sits a step deeper than the settings page's own surface in
 /**
  * Add the stylesheet once per document.
  * @param doc - the document to inject into; defaults to the page's.
+ * @returns a disposer owned by the client plugin fiber.
  */
-export function installStyles(doc: Document = document): void {
-  if (doc.querySelector(`style[data-plugin="${STYLE_TAG_ID}"]`) !== null) return
-  const tag = doc.createElement('style')
-  tag.setAttribute('data-plugin', STYLE_TAG_ID)
-  tag.textContent = CSS
-  doc.head.append(tag)
+export function installStyles(doc: Document = document): () => void {
+  let tag = doc.querySelector<HTMLStyleElement>(`style[data-plugin="${STYLE_TAG_ID}"]`)
+  if (tag === null) {
+    tag = doc.createElement('style')
+    tag.setAttribute('data-plugin', STYLE_TAG_ID)
+    tag.textContent = CSS
+    doc.head.append(tag)
+  }
+  return () => { tag.remove() }
 }

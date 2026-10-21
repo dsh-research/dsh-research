@@ -1,7 +1,6 @@
 /**
- * dsh-research, browser half. Contributes one page to the Settings
- * sidebar listing the curated research plugin index, each row carrying the
- * exact install command.
+ * dsh-research, browser half. Contributes the curated research plugin market
+ * to its native plugin detail page and to the Settings sidebar.
  *
  * The catalog is read from the Node half's route rather than from the network
  * directly, so the page has no third-party origin of its own and a slow
@@ -16,10 +15,11 @@ import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import { MarketController } from './store.js'
 import type { MarketState, Store } from './store.js'
-import { MarketSection } from './Section.js'
+import { MarketPluginConfig, MarketSection } from './Section.js'
 import type { MarketSectionFace } from './Section.js'
 import { NS, en, zh } from './locales.js'
 import { installStyles } from './styles.js'
+import { pluginConfigSlots } from './plugin-config.js'
 
 export { DOWN_BUDGET_MS, MarketController, PROBE_INTERVAL_MS, UP_BUDGET_MS, createStore, filterItems, installCommand, fetchCatalogRoute, probeHost, versionNewer } from './store.js'
 export type { CatalogFetch, MarketState, RestartPhase, Store } from './store.js'
@@ -48,7 +48,7 @@ export const inject = ['slots', 'locale']
  * @param ctx - client context with slots, locale and store hooks.
  */
 export function apply(ctx: ClientContext): void {
-  installStyles()
+  ctx.effect(() => installStyles(), 'dsh-research: styles')
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'dsh-research: dictionaries')
 
   const controller = new MarketController()
@@ -80,6 +80,16 @@ export function apply(ctx: ClientContext): void {
     refresh: () => { void controller.refresh() },
     siteUrl: SITE_URL,
   })
+
+  // The package listed under Plugins → Installed opens this market directly.
+  // Lazy slot injection keeps the same bundle loadable on pre-manager hosts.
+  const configSlots = pluginConfigSlots(ctx.slots)
+  configSlots.inject('plugins.bundle.config', () => configSlots.register({
+    name: 'plugins.bundle.config', key: 'dsh-research', locale: NS, inject: face,
+  }, MarketPluginConfig))
+  configSlots.inject('plugins.row.config', () => configSlots.register({
+    name: 'plugins.row.config', key: 'dsh-research#research-market', locale: NS, inject: face,
+  }, MarketPluginConfig))
 
   // Order 200: after the shipped sections, so this page never displaces a
   // built-in one for a user who installed it for one plugin.

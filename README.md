@@ -1,18 +1,18 @@
 <p align="center"><strong>dsh-research</strong></p>
 
-# Research plugins, inside Settings
+# Research plugins, from the Plugins page
 
 English | [中文](README_CN.md)
 
 [![npm](https://img.shields.io/npm/v/dsh-research?label=npm)](https://www.npmjs.com/package/dsh-research) [![dsh-plugin](https://img.shields.io/badge/topic-dsh--plugin-blue)](https://github.com/topics/dsh-plugin) ![license](https://img.shields.io/badge/license-MIT-green)
 
-A curated market for research plugins: a **Research plugins** page in the Settings sidebar, listing hand-picked plugins for literature search, reference management, writing and review — with an Install button that writes straight into the profile you are running.
+A curated market for literature search, reference management, writing and review plugins. Open **Plugins → Installed → dsh-research**, or use **Settings → Research plugins**. Each Install button adds the selected plugin to the profile you are running.
 
 ```sh
 dsh plugin --profile web add dsh-research
 ```
 
-Restart `dsh web`, then open **Settings → Research plugins**.
+Restart DSH Desktop or `dsh web`, then open **Plugins → Installed → dsh-research**. **Settings → Research plugins** remains available, including on older Harness versions.
 
 ## dsh-research.com
 

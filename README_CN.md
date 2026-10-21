@@ -1,18 +1,18 @@
 <p align="center"><strong>dsh-research</strong></p>
 
-# 科研插件市场，就在设置里
+# 科研插件市场，直接从插件页打开
 
 [English](README.md) | 中文
 
 [![npm](https://img.shields.io/npm/v/dsh-research?label=npm)](https://www.npmjs.com/package/dsh-research) [![dsh-plugin](https://img.shields.io/badge/topic-dsh--plugin-blue)](https://github.com/topics/dsh-plugin) ![license](https://img.shields.io/badge/license-MIT-green)
 
-精选的科研插件市场：设置侧边栏多出一页**「科研插件」**，列出人工挑选的文献检索、文献管理、写作与评审类插件，**点「安装」直接装进你正在运行的 profile**。
+精选的科研插件市场：在 **插件 → 已安装 → dsh-research** 中直接打开，也保留设置侧边栏的**「科研插件」**页面，列出人工挑选的文献检索、文献管理、写作与评审类插件，**点「安装」直接装进你正在运行的 profile**。
 
 ```sh
 dsh plugin --profile web add dsh-research
 ```
 
-重启 `dsh web`，然后打开**设置 → 科研插件**。
+重启 DSH Desktop 或 `dsh web`，然后打开 **插件 → 已安装 → dsh-research**。也可以使用 **设置 → 科研插件**；旧版 Harness 继续使用这个设置入口。
 
 ## dsh-research.com
 

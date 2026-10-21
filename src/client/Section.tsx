@@ -12,7 +12,7 @@
  */
 
 import { useEffect, useState } from 'react'
-import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
+import type { InjectFace, PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import type { MarketItem } from '../shared/route.js'
 import type {} from './locales.js'
@@ -20,6 +20,7 @@ import type { MarketState, Store } from './store.js'
 import { installCommand } from './store.js'
 import { Confirm } from './Confirm.js'
 import { cls } from './styles.js'
+import type { PluginConfigView } from './plugin-config.js'
 
 /** The registration-side face this plugin's section injects. */
 export interface MarketSectionFace {
@@ -54,9 +55,13 @@ export interface MarketSectionFace {
 }
 
 /** Props the slot renderer passes in. */
-export type MarketSectionProps = PropsRuntime<'settings.section'>
-  & PropsLocale<'settings.researchMarket'>
+export type MarketSectionProps = PropsLocale<'settings.researchMarket'>
   & InjectFace<MarketSectionFace>
+
+/** The host owns the native page title; summaries contain inline copy only. */
+export function MarketPluginConfig(props: MarketSectionProps & PluginConfigView) {
+  return props.view === 'summary' ? <>{props.t('intro')}</> : <MarketSection {...props} />
+}
 
 /** Which list the reader is looking at. */
 type Tab = 'discover' | 'installed'

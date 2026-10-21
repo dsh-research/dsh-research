@@ -2,6 +2,14 @@
 
 All notable changes to `dsh-research` are recorded here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [SemVer](https://semver.org/).
 
+## [0.4.4] - 2026-10-21
+
+### Added
+- Open the research market directly from Plugins → Installed → dsh-research on current Harness hosts, including the bundle row’s configure action. Settings → Research plugins remains available, and both entrances share the same catalog and operation state.
+
+### Fixed
+- Dispose the client stylesheet with the plugin so unloading its pages leaves no orphaned styles.
+
 ## [0.4.3] - 2026-09-01
 
 ### Fixed
