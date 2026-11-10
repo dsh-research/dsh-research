@@ -2,6 +2,14 @@
 
 All notable changes to `dsh-research` are recorded here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [SemVer](https://semver.org/).
 
+## [0.4.6] - 2026-11-10
+
+### Added
+- Add a native **Curated research plugins / 精选科研插件** entry to the main sidebar, opening the catalog directly. It shares search and installation state with the existing Settings and plugin detail pages, and follows the host's locale and theme.
+
+### Changed
+- Use the website header's six-block grid-and-list logo in the sidebar and catalog heading, preserving its proportions, orange selected entry, and colors that follow the app's light or dark theme.
+
 ## [0.4.5] - 2026-11-10
 
 ### Fixed

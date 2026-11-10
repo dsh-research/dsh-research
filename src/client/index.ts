@@ -1,6 +1,6 @@
 /**
  * dsh-research, browser half. Contributes the curated research plugin market
- * to its native plugin detail page and to the Settings sidebar.
+ * to the main sidebar, its native plugin detail page and Settings.
  *
  * The catalog is read from the Node half's route rather than from the network
  * directly, so the page has no third-party origin of its own and a slow
@@ -20,6 +20,7 @@ import type { MarketSectionFace } from './Section.js'
 import { NS, en, zh } from './locales.js'
 import { installStyles } from './styles.js'
 import { pluginConfigSlots } from './plugin-config.js'
+import { applyMarketPanel } from './Panel.js'
 
 export { DOWN_BUDGET_MS, MarketController, PROBE_INTERVAL_MS, UP_BUDGET_MS, createStore, filterItems, installCommand, fetchCatalogRoute, probeHost, versionNewer } from './store.js'
 export type { CatalogFetch, MarketState, RestartPhase, Store } from './store.js'
@@ -80,6 +81,8 @@ export function apply(ctx: ClientContext): void {
     refresh: () => { void controller.refresh() },
     siteUrl: SITE_URL,
   })
+
+  applyMarketPanel(ctx, face)
 
   // The package listed under Plugins → Installed opens this market directly.
   // Lazy slot injection keeps the same bundle loadable on pre-manager hosts.

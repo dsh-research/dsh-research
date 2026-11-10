@@ -12,6 +12,7 @@ export type MarketLocaleKey =
   | 'nativeManagement'
   | 'nativeRestart'
   | 'copyPackage'
+  | 'sidebarNav'
   | 'nav'
   | 'title'
   | 'tabDiscover'
@@ -93,6 +94,7 @@ export const zh: Record<MarketLocaleKey, string> = {
   nativeRestart: '变更已保存。请退出并重新打开当前应用，使变更生效。',
   copyPackage: '复制包名',
   nav: '科研插件',
+  sidebarNav: '精选科研插件',
   title: '科研插件',
   tabDiscover: '发现',
   tabInstalled: '已安装',
@@ -167,6 +169,7 @@ export const en: Record<MarketLocaleKey, string> = {
   nativeRestart: 'Changes saved. Close and reopen the current application to apply them.',
   copyPackage: 'Copy package',
   nav: 'Research plugins',
+  sidebarNav: 'Curated research plugins',
   title: 'Research plugins',
   tabDiscover: 'Discover',
   tabInstalled: 'Installed',

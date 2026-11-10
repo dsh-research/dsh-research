@@ -94,12 +94,21 @@ function SearchIcon(): JSX.Element {
   )
 }
 
-/** The page's own mark, matching the sidebar entry. */
-function TitleIcon(): JSX.Element {
+/** The website header's full mark, with its tightly framed, original proportions. */
+export function MarketIcon({ size = 16 }: { size?: number }): JSX.Element {
   return (
-    <svg className={cls.titleIcon} width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-      <path d="M3 2.5h7l3 3v8h-10z" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" />
-      <path d="M9.5 2.5v3.5h3.5M5.5 8.5h5M5.5 11h3" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+    <svg className={cls.titleIcon} width={size} height={size} viewBox="1 10 52 44" fill="currentColor" aria-hidden="true" focusable="false">
+      <rect x="3" y="12" width="13" height="12" rx="4" />
+      <rect x="19" y="12" width="13" height="12" rx="4" />
+      <rect x="3" y="26" width="13" height="12" rx="4" />
+      <rect x="19" y="26" width="13" height="12" rx="4" />
+      <rect x="3" y="40" width="13" height="12" rx="4" />
+      <rect x="19" y="40" width="13" height="12" rx="4" />
+      <rect x="37" y="21" width="14" height="4.2" rx="2.1" />
+      <rect x="37" y="27.75" width="14" height="4.2" rx="2.1" />
+      <rect x="37" y="41.25" width="14" height="4.2" rx="2.1" />
+      <rect x="37" y="48" width="14" height="4.2" rx="2.1" />
+      <rect className={cls.logoAccent} x="37" y="34.5" width="14" height="4.2" rx="2.1" fill="#c2410c" />
     </svg>
   )
 }
@@ -198,7 +207,7 @@ export function MarketSection(props: MarketSectionProps): JSX.Element {
   return (
     <div className={cls.root}>
       <div className={cls.head}>
-        <h2 className={cls.title}><TitleIcon />{t('title')}</h2>
+        <h2 className={cls.title}><MarketIcon />{t('title')}</h2>
         <p className={cls.sub}>
           <span>{t('intro')}</span>
           <span className={cls.headAction}>

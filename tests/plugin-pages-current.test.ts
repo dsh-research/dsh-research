@@ -72,13 +72,28 @@ describe.skipIf(!compatRoot)('published current UI runtime', () => {
         expect(declaration, `published declaration ${name}`).not.toBeNull()
         children[name] = new Function(`return (${declaration![1]})`)() as object
       }
+      // Match the published navigation owners, including their late declaration.
+      for (const [name, pkg] of [['main', 'layout'], ['sidebar.panellist', 'sidebar']] as const) {
+        const source = readFileSync(sdk.resolve(`@deepseek-ai/dsh-client-ui-${pkg}/client`), 'utf8')
+        const declaration = source.match(new RegExp(`"${name.replaceAll('.', '\\.')}":\\s*(\\{\\s*kind:\\s*"\\w+",\\s*scope:\\s*"[\\w-]+"\\s*\\})`))
+        expect(declaration, `published declaration ${name}`).not.toBeNull()
+        children[name] = new Function(`return (${declaration![1]})`)() as object
+      }
+      expect(slots.entries('main')).toHaveLength(0)
+      expect(slots.entries('sidebar.panellist')).toHaveLength(0)
       removeOwner = slots.register({ name: 'root', children }, () => null)
       expect(slots.entries('plugins.bundle.config')[0]?.options.key).toBe(manifest.name)
       expect(slots.entries('plugins.row.config')[0]?.options.key).toBe(`${manifest.name}#${rowId}`)
       expect(slots.entries('settings.section')[0]?.options.id).toBe(rowId)
       expect(slots.entries('settings.plugin.item')).toHaveLength(0)
+      expect(slots.entries('main')[0]?.options.key).toBe('research-market.catalog')
+      expect(slots.entries('sidebar.panellist')[0]?.options.id).toBe('research-market.catalog')
+      const panelState = slots.entries('main')[0]!.inject().hooks
+      for (const name of ['plugins.bundle.config', 'plugins.row.config', 'settings.section']) {
+        expect(slots.entries(name)[0]!.inject().hooks).toEqual(panelState)
+      }
       await act(async () => {
-        const entries = ['plugins.bundle.config', 'plugins.row.config', 'settings.section'].map((name) => slots.entries(name)[0]!)
+        const entries = ['plugins.bundle.config', 'plugins.row.config', 'settings.section', 'main'].map((name) => slots.entries(name)[0]!)
         root.render(createElement('div', {}, ...entries.map((entry, key) => {
           const { hooks, ...actions } = entry.inject()
           const props: Record<string, unknown> = { key, view: 'page', ...actions, t: (key: string) => [...dicts.values()][0]?.[key] ?? key }
@@ -92,7 +107,8 @@ describe.skipIf(!compatRoot)('published current UI runtime', () => {
         expect(container.querySelectorAll('input[type="password"]')).toHaveLength(3)
         expect(container.textContent).toContain('Configured via')
       } else {
-        expect(container.querySelectorAll('input')).toHaveLength(3)
+        expect(container.querySelectorAll('input')).toHaveLength(4)
+        expect(container.querySelector('main')?.getAttribute('aria-label')).toBe('Research plugins')
         expect(container.textContent).toContain('Research plugins')
         expect(container.textContent).toContain('fixture catalog unavailable')
       }
@@ -100,13 +116,17 @@ describe.skipIf(!compatRoot)('published current UI runtime', () => {
       // redeclaring it must re-register them exactly once.
       removeOwner()
       expect(slots.entries('plugins.bundle.config')).toHaveLength(0)
+      expect(slots.entries('main')).toHaveLength(0)
+      expect(slots.entries('sidebar.panellist')).toHaveLength(0)
       removeOwner = slots.register({ name: 'root', children }, () => null)
       expect(slots.entries('plugins.bundle.config')).toHaveLength(1)
+      expect(slots.entries('main')).toHaveLength(1)
+      expect(slots.entries('sidebar.panellist')).toHaveLength(1)
       await act(async () => { root.unmount() })
       await fiber.dispose()
       for (const name of Object.keys(children)) expect(slots.entries(name)).toHaveLength(0)
       expect(dicts.size).toBe(0)
-      expect(document.querySelector(`style[data-plugin="${manifest.name}"]`)).toBeNull()
+      expect(document.querySelector(`style[data-plugin="${manifest.name}/settings-section"]`)).toBeNull()
     } finally {
       await act(async () => { root.unmount() })
       await fiber.dispose()

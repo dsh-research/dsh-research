@@ -22,10 +22,12 @@ const P = 'rmkt'
 
 /** Class names used by the section component. */
 export const cls = {
+  panel: `${P}-panel`,
   root: `${P}-root`,
   head: `${P}-head`,
   title: `${P}-title`,
   titleIcon: `${P}-title-icon`,
+  logoAccent: `${P}-logo-accent`,
   sub: `${P}-sub`,
   headAction: `${P}-head-action`,
   tabs: `${P}-tabs`,
@@ -74,10 +76,15 @@ export const cls = {
 } as const
 
 const CSS = `
+.${cls.panel}{box-sizing:border-box;width:100%;height:100%;min-height:0;overflow:auto;padding:28px 32px;background:var(--dsw-alias-bg-base,#ffffff)}
+.${cls.panel}>.${cls.root}{max-width:1100px;margin:0 auto}
+@media(max-width:640px){.${cls.panel}{padding:20px 16px}}
 .${cls.root}{display:flex;flex-direction:column;min-width:0;color:var(--dsw-alias-label-primary,#1f2328)}
 .${cls.head}{display:flex;flex-direction:column;gap:10px;padding:0 0 12px}
 .${cls.title}{display:flex;align-items:center;gap:9px;font-size:16px;line-height:24px;font-weight:600;margin:0}
-.${cls.titleIcon}{flex:none;opacity:.85}
+.${cls.titleIcon}{flex:none}
+/* Follow the app's chosen theme, including when it differs from the OS. */
+body[data-ds-dark-theme] .${cls.logoAccent}{fill:#fb923c}
 .${cls.sub}{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:13.5px;line-height:22px;color:var(--dsw-alias-label-tertiary,#8b93a1);margin:0}
 .${cls.headAction}{margin-left:auto;display:flex;align-items:center;gap:12px;flex:none}
 .${cls.tabs}{display:flex;gap:2px;border-bottom:1px solid var(--dsw-alias-border-l2,#e5e7eb);align-items:flex-end}
