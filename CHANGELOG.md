@@ -2,6 +2,19 @@
 
 All notable changes to `dsh-research` are recorded here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [SemVer](https://semver.org/).
 
+## [0.4.5] - 2026-11-10
+
+### Fixed
+- Fix every Desktop install failing with `untrusted origin`: current hosts use the authenticated owner-only fetch registry and native plugin manager instead of the legacy Origin-gated CLI route.
+- Install and activate the exact catalog version; update installed bundles through the host's update/rollback flow, and remove them through its manager. Electron-owned Desktop profiles are never modified or relaunched through the legacy CLI path.
+- Show restart instructions only when the native manager reports `restart-required`; applied changes are immediately marked installed. Preserve host diagnostics and clear busy state after connection failures so retries remain possible.
+- Restore the catalog allowlist after a host hot reload, so installing one plugin does not make the next install or removal fail.
+- Honor `allowInstall` and `allowRestart` in the panel. On Desktop, copy a versioned package name for the native Add plugin dialog instead of a command targeting Web.
+
+### Compatibility
+- Older Web hosts retain the same-origin, catalog-limited CLI path. Native operations require the running profile; an override targeting a different profile is rejected.
+- Dependency build-script approval remains in the host's plugin manager. The research panel does not grant build permissions automatically.
+
 ## [0.4.4] - 2026-10-21
 
 ### Added

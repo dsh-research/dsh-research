@@ -612,6 +612,7 @@ describe('the routes the plugin puts on the web server', () => {
         return () => undefined
       },
       inject(_deps: string[], callback: (child: unknown) => void) {
+        if (!_deps.includes('webServer')) return
         callback({ ...ctx, webServer })
       },
     } as unknown as Parameters<typeof apply>[0]

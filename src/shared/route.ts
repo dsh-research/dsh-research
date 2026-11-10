@@ -20,6 +20,9 @@
 export const CATALOG_ROUTE = '/research-market/catalog'
 
 /** Host route that installs one catalog entry. POST only, same-origin only. */
+export const NATIVE_INSTALL_ROUTE = '/api/research-market/install'
+export const NATIVE_REMOVE_ROUTE = '/api/research-market/remove'
+
 export const INSTALL_ROUTE = '/research-market/install'
 
 /** Host route that removes one catalog entry. POST only, same-origin only. */
@@ -93,6 +96,9 @@ export interface CatalogPage {
 
 /** What {@link CATALOG_ROUTE} answers: the page plus this machine's state. */
 export interface CatalogResponse extends CatalogPage {
+  readonly nativeManagement?: boolean
+  readonly allowInstall?: boolean
+  readonly allowRestart?: boolean
   /** Bundles already present in the active profile, so installed rows say so. */
   readonly installed: readonly string[]
   /**
@@ -134,6 +140,9 @@ export interface RestartResponse {
 
 /** What {@link INSTALL_ROUTE} and {@link REMOVE_ROUTE} answer. */
 export interface InstallResponse {
+  /** Native manager activation status; omitted by legacy CLI hosts. */
+  readonly restartRequired?: boolean
+  readonly version?: string
   /** Whether the plugin is now in the profile. */
   readonly ok: boolean
   /** Package that was added. */

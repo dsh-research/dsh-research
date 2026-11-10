@@ -17,7 +17,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import type { MarketItem } from '../shared/route.js'
 import type {} from './locales.js'
 import type { MarketState, Store } from './store.js'
-import { installCommand } from './store.js'
+import { installCommand, packageSpec } from './store.js'
 import { Confirm } from './Confirm.js'
 import { cls } from './styles.js'
 import type { PluginConfigView } from './plugin-config.js'
@@ -128,9 +128,12 @@ function commandFor(pending: Pending, profile: string): string | undefined {
 export function MarketSection(props: MarketSectionProps): JSX.Element {
   const {
     t, visible, search, copy, install, uninstall, isInstalled, updateFor,
-    canInstall, restartHost, canRestart, refresh, siteUrl,
+    canInstall: permitsInstall, restartHost, canRestart: permitsRestart, refresh, siteUrl,
   } = props
   const state = props.useMarket((snapshot) => snapshot)
+  const canInstall = permitsInstall && state.allowInstall
+  const manualRestart = state.nativeManagement || state.profile === 'desktop'
+  const canRestart = permitsRestart && state.allowRestart && !state.loading && !manualRestart
   const categoryLabel = (name: string): string => {
     const key = CATEGORY_KEY[name]
     return key === undefined ? name : t(key)
@@ -235,6 +238,7 @@ export function MarketSection(props: MarketSectionProps): JSX.Element {
         )}
         {state.stale && <p className={cls.warn}>{t('stale')}</p>}
 
+        {manualRestart && state.pendingRestart.length > 0 && <p className={cls.note}>{t('nativeRestart')}</p>}
         {canRestart && (state.pendingRestart.length > 0 || state.restartPhase !== undefined) && (
           <div className={cls.bar}>
             <span>{restartStatus()}</span>
@@ -287,7 +291,7 @@ export function MarketSection(props: MarketSectionProps): JSX.Element {
             : (
               <ul className={cls.list}>
                 {rows.map((item: MarketItem) => {
-                  const command = installCommand(item)
+                  const command = state.profile === 'desktop' ? packageSpec(item) : installCommand(item, state.profile || 'web')
                   const done = isInstalled(item)
                   const update = updateFor(item)
                   const busy = state.installing === item.npm
@@ -356,7 +360,7 @@ export function MarketSection(props: MarketSectionProps): JSX.Element {
                             type="button" className={cls.ghost} title={command ?? ''}
                             disabled={command === undefined} onClick={() => copy(item)}
                           >
-                            {state.copied === item.id ? t('copied') : t('copy')}
+                            {state.copied === item.id ? t('copied') : t(state.profile === 'desktop' ? 'copyPackage' : 'copy')}
                           </button>
                           {canInstall && done && update !== undefined && (
                             <button
@@ -394,7 +398,7 @@ export function MarketSection(props: MarketSectionProps): JSX.Element {
               : t(pending.kind === 'install' ? 'confirmInstallTitle' : pending.kind === 'update' ? 'confirmUpdateTitle' : 'confirmRemoveTitle').replace('{name}', pending.item.repo)}
             command={pending.kind === 'restart'
               ? (byHand ? state.restartCommand : undefined)
-              : commandFor(pending, state.profile)}
+              : state.nativeManagement ? packageSpec(pending.item) : commandFor(pending, state.profile)}
             confirmLabel={t(pending.kind === 'restart' && byHand ? 'copy' : 'confirmYes')}
             cancelLabel={t('confirmNo')}
             closeLabel={t('confirmClose')}
@@ -416,7 +420,7 @@ export function MarketSection(props: MarketSectionProps): JSX.Element {
                         ? t('confirmOurs')
                         : t('confirmThird').replace('{publisher}', pending.item.publisher ?? pending.item.repo.split('/')[0] ?? '')}</span>
                   <span>{t('confirmProfile')}<b>{state.profile}</b>.</span>
-                  <span>{t('confirmWillRun')}</span>
+                  <span>{t(state.nativeManagement ? 'nativeManagement' : 'confirmWillRun')}</span>
                 </>
               )}
           </Confirm>

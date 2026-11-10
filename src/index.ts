@@ -5,19 +5,14 @@
  * packages by hand means reading a website, selecting a line, and trusting it
  * — this plugin turns that into a list you scroll and a button you press.
  *
- * It deliberately does NOT install anything, and the reason is not that
- * installing is unsafe. `dsh-market` already installs from a curated registry
- * with a same-origin check, a mutation lock, duplicate-alias guards, retry of
- * dependencies left by a failed install, and Windows shim handling — months
- * of edge cases. Reimplementing that to save a paste would be reimplementing
- * it badly. What is missing from that market is not installation but
- * curation: which fifteen of eleven hundred plugins a researcher wants. So
- * this panel does the part nobody else does, and hands over the command.
+ * Modern hosts install through the authenticated native plugin manager.
+ * Older Web hosts retain the catalog-limited CLI routes.
  * @module dsh-research
  */
 
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { Context } from '@deepseek-ai/cordis'
+import { applyNativeManagement } from './native-management.js'
 import Schema from '@deepseek-ai/schemastery'
 // Type-only: the Context merge declaring `ctx.webServer`.
 import type { WebRoute } from '@deepseek-ai/dsh-host-webserver'
@@ -98,6 +93,33 @@ export function apply(ctx: Context, config: Config): void {
   let installing: string | undefined
   const profile = resolveProfile(resolved.profile)
 
+  const catalog = async (lang: string): Promise<CatalogPage> => {
+    const now = Date.now()
+    const url = lang === 'zh' ? resolved.catalogUrlZh : resolved.catalogUrl
+    const hit = cached.get(lang)
+    if (hit !== undefined && now - hit.at < resolved.cacheSeconds * 1000) return hit.value
+    try {
+      const fresh = await fetchCatalog(url, resolved.timeoutMs)
+      cached.set(lang, { at: now, value: fresh })
+      return fresh
+    } catch (cause) {
+      // A stale list still lets someone install; an error page does not.
+      if (hit !== undefined) return { ...hit.value, stale: true }
+      throw cause
+    }
+  }
+
+  const native = applyNativeManagement(ctx, {
+    allowInstall: resolved.allowInstall,
+    profileMatches: profile === resolveProfile(undefined),
+    items: async () => {
+      // A native package operation can remount this plugin while the client
+      // retains its cards. Rebuild the allowlist before the next mutation.
+      if (cached.size === 0) await catalog('en')
+      return [...cached.values()].flatMap(page => page.value.items)
+    },
+  })
+
   ctx.inject(['webServer'], (webCtx) => {
     // The web server owns one route table and throws on a duplicate (kind, path),
     // and `register` returns the disposer that removes the route. Give that
@@ -119,28 +141,17 @@ export function apply(ctx: Context, config: Config): void {
           response.end()
           return
         }
-        const now = Date.now()
         const lang = new URL(request.url ?? '/', 'http://localhost').searchParams.get('lang') === 'zh' ? 'zh' : 'en'
-        const url = lang === 'zh' ? resolved.catalogUrlZh : resolved.catalogUrl
-        const answer = async (): Promise<CatalogPage> => {
-          const hit = cached.get(lang)
-          if (hit !== undefined && now - hit.at < resolved.cacheSeconds * 1000) return hit.value
-          try {
-            const fresh = await fetchCatalog(url, resolved.timeoutMs)
-            cached.set(lang, { at: now, value: fresh })
-            return fresh
-          } catch (cause) {
-            // A stale list still lets someone install; an error page does not.
-            if (hit !== undefined) return { ...hit.value, stale: true }
-            throw cause
-          }
-        }
         try {
-          const value = await answer()
+          const value = await catalog(lang)
+          const bundles = native.manager === undefined ? undefined : await native.manager.listBundles()
           sendJson(response, 200, {
             ...value,
-            installed: installedBundles(profile),
-            installedVersions: installedVersionsOf(profile),
+            installed: bundles === undefined ? installedBundles(profile) : bundles.filter(b => b.installed || b.enabled).map(b => b.name),
+            installedVersions: bundles === undefined ? installedVersionsOf(profile) : Object.fromEntries(bundles.filter(b => b.version !== undefined).map(b => [b.name, b.version])),
+            nativeManagement: native.manager !== undefined,
+            allowInstall: resolved.allowInstall,
+            allowRestart: resolved.allowRestart,
             profile,
             attached: attachedToTerminal(),
             restartCommand: restartCommand(),
@@ -166,6 +177,10 @@ export function apply(ctx: Context, config: Config): void {
         // site install packages into this profile.
         if (!sameOrigin(request)) {
           sendJson(response, 403, { error: 'untrusted origin' })
+          return
+        }
+        if (profile === 'desktop' || native.manager !== undefined) {
+          sendJson(response, 409, { error: 'Use the native plugin manager for this host.' })
           return
         }
         if (installing !== undefined) {
@@ -226,6 +241,10 @@ export function apply(ctx: Context, config: Config): void {
           sendJson(response, 403, { error: 'untrusted origin' })
           return
         }
+        if (profile === 'desktop' || native.manager !== undefined) {
+          sendJson(response, 409, { error: 'Use the native plugin manager for this host.' })
+          return
+        }
         if (installing !== undefined) {
           sendJson(response, 409, { error: `busy with ${installing}` })
           return
@@ -271,6 +290,10 @@ export function apply(ctx: Context, config: Config): void {
         // when the act is ending this process.
         if (!trustedRestartRequest(request)) {
           sendJson(response, 403, { error: 'restart is limited to same-origin loopback requests' })
+          return
+        }
+        if (profile === 'desktop' || native.manager !== undefined) {
+          sendJson(response, 409, { error: 'Use the native plugin manager for this host.' })
           return
         }
         if (installing !== undefined) {

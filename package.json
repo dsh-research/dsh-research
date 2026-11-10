@@ -1,6 +1,6 @@
 {
   "name": "dsh-research",
-  "version": "0.4.4",
+  "version": "0.4.5",
   "description": "The research plugin market inside DeepSeek Harness: browse a curated index of literature, reference, writing and workbench plugins in Settings and install them with one click — 科研插件市场，在设置里浏览并一键安装。",
   "type": "module",
   "license": "MIT",

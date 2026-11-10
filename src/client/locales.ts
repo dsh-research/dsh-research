@@ -9,6 +9,9 @@ export const NS = 'settings.researchMarket'
 
 /** Copy keys of the panel. */
 export type MarketLocaleKey =
+  | 'nativeManagement'
+  | 'nativeRestart'
+  | 'copyPackage'
   | 'nav'
   | 'title'
   | 'tabDiscover'
@@ -86,6 +89,9 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
 }
 
 export const zh: Record<MarketLocaleKey, string> = {
+  nativeManagement: '由当前宿主的插件管理器执行。',
+  nativeRestart: '变更已保存。请退出并重新打开当前应用，使变更生效。',
+  copyPackage: '复制包名',
   nav: '科研插件',
   title: '科研插件',
   tabDiscover: '发现',
@@ -98,7 +104,7 @@ export const zh: Record<MarketLocaleKey, string> = {
   catWorkbench: '科研工作台',
   catPacks: '技能包',
   emptyInstalled: '还没有从这里安装任何插件。',
-  intro: '人工挑选的科研插件，装进当前 profile 后重启生效',
+  intro: '人工挑选的科研插件，安装到当前使用的环境',
   search: '搜索插件、能力、关键词…',
   loading: '正在读取目录…',
   empty: '没有匹配的插件。',
@@ -122,10 +128,10 @@ export const zh: Record<MarketLocaleKey, string> = {
   confirmRestartTitle: '重启 dsh？',
   confirmProfile: '这会写入 profile ',
   confirmWillRun: '将执行：',
-  confirmOurs: '这个插件由 AI4Scholar 维护，出了问题可以直接找我们。安装会改写 profile 的清单并重装依赖，装完需要重启。',
-  confirmThird: '这个插件由 {publisher} 维护，不是我们——我们读过它的代码才收录，但它的行为与更新不由我们控制。安装会改写 profile 的清单并重装依赖，装完需要重启。',
+  confirmOurs: '这个插件由 AI4Scholar 维护，出了问题可以直接找我们。安装会改写 profile 的清单并重装依赖，需要重启时会在完成后提示。',
+  confirmThird: '这个插件由 {publisher} 维护，不是我们——我们读过它的代码才收录，但它的行为与更新不由我们控制。安装会改写 profile 的清单并重装依赖，需要重启时会在完成后提示。',
   confirmRemoveBody: '会从 profile 中移除该插件，磁盘上的包也会被删除。可以随时重新安装。',
-  confirmUpdateBody: '从 v{from} 更新到 v{to}——目录里的版本就是我们审读过代码的版本。更新后需要重启 dsh 生效。',
+  confirmUpdateBody: '从 v{from} 更新到 v{to}——目录里的版本就是我们审读过代码的版本。需要重启时会在完成后提示。',
   confirmRestartBody: '当前 dsh 进程会退出，随后自动拉起新的。本页会短暂断开，刷新即可回来；正在进行的对话会中断。',
   confirmYes: '确认',
   confirmNo: '取消',
@@ -157,6 +163,9 @@ export const zh: Record<MarketLocaleKey, string> = {
 }
 
 export const en: Record<MarketLocaleKey, string> = {
+  nativeManagement: 'The current host’s plugin manager will apply this change.',
+  nativeRestart: 'Changes saved. Close and reopen the current application to apply them.',
+  copyPackage: 'Copy package',
   nav: 'Research plugins',
   title: 'Research plugins',
   tabDiscover: 'Discover',
@@ -193,10 +202,10 @@ export const en: Record<MarketLocaleKey, string> = {
   confirmRestartTitle: 'Restart dsh?',
   confirmProfile: 'This writes into profile ',
   confirmWillRun: 'It will run:',
-  confirmOurs: 'AI4Scholar maintains this one, so problems with it come back to us. Installing rewrites the profile manifest and reinstalls its dependencies; a restart is needed afterwards.',
-  confirmThird: '{publisher} maintains this one, not us — we read its code before listing it, but neither its behaviour nor its updates are ours to control. Installing rewrites the profile manifest and reinstalls its dependencies; a restart is needed afterwards.',
+  confirmOurs: 'AI4Scholar maintains this one, so problems with it come back to us. Installing rewrites the profile manifest and reinstalls its dependencies; the page reports if a restart is needed.',
+  confirmThird: '{publisher} maintains this one, not us — we read its code before listing it, but neither its behaviour nor its updates are ours to control. Installing rewrites the profile manifest and reinstalls its dependencies; the page reports if a restart is needed.',
   confirmRemoveBody: 'The plugin leaves the profile and its package is deleted from disk. You can install it again at any time.',
-  confirmUpdateBody: 'Moves it from v{from} to v{to} — the catalog version is the one whose code we reviewed. Restart dsh afterwards for it to take effect.',
+  confirmUpdateBody: 'Moves it from v{from} to v{to} — the catalog version is the one whose code we reviewed. The page reports if a restart is needed.',
   confirmRestartBody: 'This dsh process exits and a fresh one is started. The page drops briefly — reload it — and any conversation in progress is interrupted.',
   confirmYes: 'Confirm',
   confirmNo: 'Cancel',

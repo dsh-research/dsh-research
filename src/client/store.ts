@@ -8,11 +8,14 @@
  * @module dsh-research/client/store
  */
 
-import { CATALOG_ROUTE, INSTALL_ROUTE, REMOVE_ROUTE, RESTART_ROUTE } from '../shared/route.js'
+import { CATALOG_ROUTE, NATIVE_INSTALL_ROUTE, NATIVE_REMOVE_ROUTE, INSTALL_ROUTE, REMOVE_ROUTE, RESTART_ROUTE } from '../shared/route.js'
 import type { CatalogResponse, InstallResponse, MarketItem, RestartResponse } from '../shared/route.js'
 
 /** What the panel renders. */
 export interface MarketState {
+  readonly nativeManagement: boolean
+  readonly allowInstall: boolean
+  readonly allowRestart: boolean
   /** Whether the first load is still in flight. */
   readonly loading: boolean
   /** Entries from the catalog, in catalog order. */
@@ -90,7 +93,7 @@ export interface Store<T> {
 export type CatalogFetch = (lang: string, signal?: AbortSignal) => Promise<CatalogResponse>
 
 /** POST to the Node half's install route; injectable for tests. */
-export type InstallRequest = (npm: string) => Promise<InstallResponse>
+export type InstallRequest = (npm: string, native?: boolean) => Promise<InstallResponse>
 
 /** POST one package name to a mutation route. */
 async function postPackage(route: string, npm: string): Promise<InstallResponse> {
@@ -135,10 +138,10 @@ export function failureText(answer: InstallResponse, fallback: string): string {
 }
 
 /** Default installer: `POST /research-market/install` on the page origin. */
-export const requestInstall: InstallRequest = (npm) => postPackage(INSTALL_ROUTE, npm)
+export const requestInstall: InstallRequest = (npm, native) => postPackage(native ? NATIVE_INSTALL_ROUTE : INSTALL_ROUTE, npm)
 
 /** Default remover: `POST /research-market/remove` on the page origin. */
-export const requestRemove: InstallRequest = (npm) => postPackage(REMOVE_ROUTE, npm)
+export const requestRemove: InstallRequest = (npm, native) => postPackage(native ? NATIVE_REMOVE_ROUTE : REMOVE_ROUTE, npm)
 
 /** Ask the host to restart itself. */
 export const requestRestart = async (): Promise<RestartResponse> => {
@@ -221,11 +224,15 @@ export function versionNewer(candidate: string, current: string): boolean {
 }
 
 /** The install command for one entry, or `undefined` when npm name is unknown. */
-export function installCommand(item: MarketItem): string | undefined {
+export function packageSpec(item: MarketItem): string | undefined {
+  return item.npm === undefined ? undefined : `${item.npm}${item.version === undefined ? '' : `@${item.version}`}`
+}
+
+export function installCommand(item: MarketItem, profile = 'web'): string | undefined {
   if (item.npm === undefined) return undefined
   // Same pin as the host applies (see installSpec): the reviewed version,
   // immune to pnpm 11 serving yesterday's release.
-  return `dsh plugin --profile web add ${item.npm}${item.version === undefined ? '' : `@${item.version}`}`
+  return `dsh plugin --profile ${profile} add ${packageSpec(item)}`
 }
 
 /** Case-insensitive filter over the fields a reader would search. */
@@ -239,6 +246,7 @@ export function filterItems(items: readonly MarketItem[], query: string): readon
 /** Owns the panel's state and the one request behind it. */
 export class MarketController {
   readonly store = createStore<MarketState>({
+    nativeManagement: false, allowInstall: true, allowRestart: true,
     loading: true, items: [], revision: '', stale: false, query: '',
     installed: [], installedVersions: {}, profile: '', failures: {}, pendingRestart: [],
     attached: false, restartCommand: 'dsh web',
@@ -278,12 +286,14 @@ export class MarketController {
    */
   async install(item: MarketItem): Promise<void> {
     const npm = item.npm
-    if (npm === undefined || this.state().installing !== undefined) return
+    if (npm === undefined || !this.state().allowInstall || this.state().installing !== undefined) return
     const { failures, ...before } = this.state()
     const { [npm]: previous, ...keptFailures } = failures
     void previous
     this.store.set({ ...before, failures: keptFailures, installing: npm, startedAt: Date.now() })
-    const answer = await this.request(npm)
+    let answer: InstallResponse
+    try { answer = await this.request(npm, before.nativeManagement) }
+    catch (cause) { answer = { ok: false, npm, error: cause instanceof Error ? cause.message : String(cause) } }
     const { installing, startedAt, ...after } = this.state()
     void installing
     void startedAt
@@ -293,10 +303,10 @@ export class MarketController {
           installed: after.installed.includes(npm) ? after.installed : [...after.installed, npm],
           // The host pinned the catalog version, so record it: the update
           // offer clears without waiting for a refetch.
-          installedVersions: item.version === undefined
+          installedVersions: (answer.version ?? item.version) === undefined
             ? after.installedVersions
-            : { ...after.installedVersions, [npm]: item.version },
-          pendingRestart: after.pendingRestart.includes(npm) ? after.pendingRestart : [...after.pendingRestart, npm],
+            : { ...after.installedVersions, [npm]: (answer.version ?? item.version)! },
+          pendingRestart: answer.restartRequired === false ? after.pendingRestart.filter(name => name !== npm) : [...after.pendingRestart.filter(name => name !== npm), npm],
         }
       : {
           ...after,
@@ -356,6 +366,9 @@ export class MarketController {
       void error
       this.store.set({
         ...rest, loading: false, items: answer.items,
+        nativeManagement: answer.nativeManagement === true,
+        allowInstall: answer.allowInstall !== false,
+        allowRestart: answer.allowRestart !== false,
         revision: answer.revision, stale: answer.stale === true,
         installed: answer.installed, installedVersions: answer.installedVersions, profile: answer.profile,
         attached: answer.attached === true,
@@ -379,7 +392,7 @@ export class MarketController {
 
   /** Copy one entry's install command and flag the row briefly. */
   async copy(item: MarketItem): Promise<void> {
-    const command = installCommand(item)
+    const command = this.state().profile === 'desktop' ? packageSpec(item) : installCommand(item, this.state().profile || 'web')
     if (command === undefined) return
     await navigator.clipboard.writeText(command)
     const { copied, ...rest } = this.state()
@@ -399,12 +412,14 @@ export class MarketController {
    */
   async uninstall(item: MarketItem): Promise<void> {
     const npm = item.npm
-    if (npm === undefined || this.state().installing !== undefined) return
+    if (npm === undefined || !this.state().allowInstall || this.state().installing !== undefined) return
     const { failures, ...before } = this.state()
     const { [npm]: previous, ...keptFailures } = failures
     void previous
     this.store.set({ ...before, failures: keptFailures, installing: npm, startedAt: Date.now() })
-    const answer = await this.remove(npm)
+    let answer: InstallResponse
+    try { answer = await this.remove(npm, before.nativeManagement) }
+    catch (cause) { answer = { ok: false, npm, error: cause instanceof Error ? cause.message : String(cause) } }
     const { installing, startedAt, ...after } = this.state()
     void installing
     void startedAt
@@ -412,7 +427,7 @@ export class MarketController {
       ? {
           ...after,
           installed: after.installed.filter((name) => name !== npm),
-          pendingRestart: [...after.pendingRestart.filter((name) => name !== npm), npm],
+          pendingRestart: answer.restartRequired === false ? after.pendingRestart.filter(name => name !== npm) : [...after.pendingRestart.filter(name => name !== npm), npm],
         }
       : { ...after, failures: { ...after.failures, [npm]: failureText(answer, 'remove failed') } })
   }
@@ -428,7 +443,7 @@ export class MarketController {
    * something the panel can state without guessing.
    */
   async restartHost(): Promise<void> {
-    if (this.state().restartPhase === 'waiting') return
+    if (this.state().nativeManagement || this.state().profile === 'desktop' || !this.state().allowRestart || this.state().restartPhase === 'waiting') return
     const { error, restartLog, ...clean } = this.state()
     void error
     void restartLog
