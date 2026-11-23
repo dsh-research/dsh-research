@@ -32,6 +32,32 @@ describe('catalog normalization', () => {
     expect(page.revision).toBe('2026-08-17T00:00:00Z')
   })
 
+  it.each(['dsh-fulltext', 'dsh-plotfig'])('shows the npm-only package %s without exposing its internal id', (npm) => {
+    const page = normalizeCatalog({ items: [{
+      id: `npm-${npm}`, displayName: npm, name: npm, summary: 'Research plugin.',
+      homepage: `https://www.npmjs.com/package/${npm}`,
+      package: { registry: 'npm', name: npm }, publisher: { name: 'literaf' }, latestVersion: '1.2.3',
+    }] })
+    expect(page.items[0]).toMatchObject({ id: `npm-${npm}`, repo: npm, npm, ours: true })
+    expect(installCommand(page.items[0]!)).toBe(`dsh plugin --profile web add ${npm}@1.2.3`)
+  })
+
+  it('uses a valid display name and falls back to the package name when it is missing or malformed', () => {
+    const entry = { id: 'npm-dsh-fulltext', summary: 's', homepage: 'https://www.npmjs.com/package/dsh-fulltext', package: { name: 'dsh-fulltext' } }
+    expect(normalizeCatalog({ items: [{ ...entry, displayName: 'Fulltext' }] }).items[0]?.repo).toBe('Fulltext')
+    for (const displayName of [undefined, '', 42, {}]) {
+      expect(normalizeCatalog({ items: [{ ...entry, displayName }] }).items[0]?.repo).toBe('dsh-fulltext')
+    }
+  })
+
+  it('puts our npm-only and repository entries before third-party entries while preserving each group order', () => {
+    const third = { id: 'other-first', summary: 's', homepage: 'https://github.com/other/first', publisher: { name: 'other' } }
+    const fulltext = { id: 'npm-dsh-fulltext', summary: 's', homepage: 'https://www.npmjs.com/package/dsh-fulltext', package: { name: 'dsh-fulltext' }, publisher: { name: 'literaf' } }
+    const raw = { items: [third, fulltext, { ...third, id: 'other-second' }, PAGE.items[0]!] }
+    expect(normalizeCatalog(raw).items.map(entry => entry.id)).toEqual(['npm-dsh-fulltext', 'literaf-dsh-ai4scholar', 'other-first', 'other-second'])
+    expect(raw.items.map(entry => entry.id)).toEqual(['other-first', 'npm-dsh-fulltext', 'other-second', 'literaf-dsh-ai4scholar'])
+  })
+
   it('drops entries the panel could only render half of', () => {
     const page = normalizeCatalog({
       items: [

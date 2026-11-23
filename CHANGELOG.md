@@ -2,6 +2,12 @@
 
 All notable changes to `dsh-research` are recorded here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [SemVer](https://semver.org/).
 
+## [0.4.7] - 2026-11-23
+
+### Fixed
+- Show the published display or package name for npm-only entries instead of their internal `npm-…` catalog ID. Keep catalog IDs and installation targets unchanged.
+- List AI4Scholar-maintained plugins first, preserving the catalog order within our own entries and within third-party entries.
+
 ## [0.4.6] - 2026-11-10
 
 ### Added

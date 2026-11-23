@@ -64,7 +64,8 @@ function item(raw: unknown): MarketItem | undefined {
     : undefined
   return {
     id,
-    repo: repoFromUrl(homepage) ?? id,
+    // npm-only entries use an internal `npm-…` id, not a display title.
+    repo: repoFromUrl(homepage) ?? str(source, 'displayName') ?? npm ?? str(source, 'name') ?? id,
     summary,
     category,
     homepage,
@@ -88,7 +89,7 @@ function item(raw: unknown): MarketItem | undefined {
 /**
  * Normalize a provider page.
  * @param raw - the parsed JSON body.
- * @returns the entries the panel can render, in catalog order.
+ * @returns our entries first, retaining catalog order within each group.
  * @throws Error when the body is not a provider page at all.
  */
 export function normalizeCatalog(raw: unknown): CatalogPage {
@@ -97,7 +98,9 @@ export function normalizeCatalog(raw: unknown): CatalogPage {
   const items = source['items']
   if (!Array.isArray(items)) throw new Error('catalog body has no items array')
   return {
-    items: items.map(item).filter((entry): entry is MarketItem => entry !== undefined),
+    items: items.map(item)
+      .filter((entry): entry is MarketItem => entry !== undefined)
+      .sort((a, b) => Number(b.ours) - Number(a.ours)),
     revision: str(source, 'revision') ?? str(source, 'generatedAt') ?? '',
   }
 }

@@ -51,7 +51,7 @@ export const CATALOG_URL_ZH = 'https://dsh-research.com/v1/market.zh.json'
 export interface MarketItem {
   /** Stable id from the catalog. */
   readonly id: string
-  /** Repository slug, shown as the entry's name. */
+  /** Repository slug or published display name, shown as the entry title. */
   readonly repo: string
   /** One-line summary. */
   readonly summary: string
@@ -86,7 +86,7 @@ export interface MarketItem {
  * catalog could claim.
  */
 export interface CatalogPage {
-  /** The entries, in catalog order. */
+  /** Our entries first, retaining catalog order within each group. */
   readonly items: readonly MarketItem[]
   /** Catalog revision, so the panel can show how fresh it is. */
   readonly revision: string
