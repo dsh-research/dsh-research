@@ -9,7 +9,7 @@
  */
 
 import { CATALOG_ROUTE, NATIVE_INSTALL_ROUTE, NATIVE_REMOVE_ROUTE, INSTALL_ROUTE, REMOVE_ROUTE, RESTART_ROUTE } from '../shared/route.js'
-import type { CatalogResponse, InstallResponse, MarketItem, RestartResponse } from '../shared/route.js'
+import type { CatalogHostState, CatalogResponse, InstallResponse, MarketItem, RestartResponse } from '../shared/route.js'
 
 /** What the panel renders. */
 export interface MarketState {
@@ -175,6 +175,44 @@ export const probeHost = async (lang: string): Promise<boolean> => {
   }
 }
 
+/**
+ * The host could not read the catalog, and said what it still knows about
+ * itself.
+ */
+export class CatalogUnavailable extends Error {
+  /**
+   * @param message - the host's reason.
+   * @param host - the host's own state; absent when an older host sent the reason alone.
+   */
+  constructor(message: string, readonly host: CatalogHostState | undefined) {
+    super(message)
+    this.name = 'CatalogUnavailable'
+  }
+}
+
+/** The fields of the panel's state that describe this host rather than the catalog. */
+type HostFields = Pick<MarketState,
+  'nativeManagement' | 'allowInstall' | 'allowRestart' | 'installed' | 'installedVersions' | 'profile' | 'attached' | 'restartCommand'>
+
+/**
+ * The host's own facts as the panel keeps them.
+ * @param host - what the route sent about this machine.
+ * @returns the matching slice of the state.
+ */
+function hostFields(host: CatalogHostState): HostFields {
+  return {
+    nativeManagement: host.nativeManagement === true,
+    allowInstall: host.allowInstall !== false,
+    allowRestart: host.allowRestart !== false,
+    installed: host.installed, installedVersions: host.installedVersions, profile: host.profile,
+    attached: host.attached === true,
+    // An older host does not send this; `dsh web` is the launch it is
+    // overwhelmingly likely to have had, and the panel only ever shows the
+    // command as something to check, never runs it.
+    restartCommand: host.restartCommand ?? 'dsh web',
+  }
+}
+
 /** Default fetcher: `GET /research-market/catalog` on the page origin. */
 export const fetchCatalogRoute: CatalogFetch = async (lang, signal) => {
   const res = await fetch(`${CATALOG_ROUTE}?lang=${encodeURIComponent(lang)}`, {
@@ -182,7 +220,15 @@ export const fetchCatalogRoute: CatalogFetch = async (lang, signal) => {
     ...(signal !== undefined ? { signal } : {}),
   })
   const body = await res.json() as Record<string, unknown>
-  if (!res.ok) throw new Error(typeof body['error'] === 'string' ? body['error'] : `catalog route answered ${res.status}`)
+  if (!res.ok) {
+    // The route sends what it knows about this host with its failures too. An
+    // older host sends the reason alone, and `installed` is what tells them apart.
+    const { error, ...rest } = body
+    throw new CatalogUnavailable(
+      typeof error === 'string' ? error : `catalog route answered ${res.status}`,
+      Array.isArray(rest['installed']) ? rest as unknown as CatalogHostState : undefined,
+    )
+  }
   return body as unknown as CatalogResponse
 }
 
@@ -366,21 +412,16 @@ export class MarketController {
       void error
       this.store.set({
         ...rest, loading: false, items: answer.items,
-        nativeManagement: answer.nativeManagement === true,
-        allowInstall: answer.allowInstall !== false,
-        allowRestart: answer.allowRestart !== false,
         revision: answer.revision, stale: answer.stale === true,
-        installed: answer.installed, installedVersions: answer.installedVersions, profile: answer.profile,
-        attached: answer.attached === true,
-        // An older host does not send this; `dsh web` is the launch it is
-        // overwhelmingly likely to have had, and the panel only ever shows the
-        // command as something to check, never runs it.
-        restartCommand: answer.restartCommand ?? 'dsh web',
+        ...hostFields(answer),
       })
     } catch (cause) {
       this.store.set({
         ...this.state(), loading: false,
         error: cause instanceof Error ? cause.message : String(cause),
+        // The catalog is the only thing that failed. Which host this is did
+        // not, and the restart button is one of the things that depend on it.
+        ...(cause instanceof CatalogUnavailable && cause.host !== undefined ? hostFields(cause.host) : {}),
       })
     }
   }

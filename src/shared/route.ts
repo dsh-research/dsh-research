@@ -94,8 +94,14 @@ export interface CatalogPage {
   readonly stale?: boolean
 }
 
-/** What {@link CATALOG_ROUTE} answers: the page plus this machine's state. */
-export interface CatalogResponse extends CatalogPage {
+/**
+ * What the host knows without asking the catalog: which machine this is, what
+ * it has, and what it permits. None of it comes from the network, so
+ * {@link CATALOG_ROUTE} sends it with its failures as well — a panel that
+ * cannot list the catalog still has to know which host it is on before it
+ * offers a restart button.
+ */
+export interface CatalogHostState {
   readonly nativeManagement?: boolean
   readonly allowInstall?: boolean
   readonly allowRestart?: boolean
@@ -119,6 +125,15 @@ export interface CatalogResponse extends CatalogPage {
   readonly attached: boolean
   /** The command that starts this host again, for when that person is you. */
   readonly restartCommand: string
+}
+
+/** What {@link CATALOG_ROUTE} answers: the page plus this machine's state. */
+export interface CatalogResponse extends CatalogPage, CatalogHostState {}
+
+/** What {@link CATALOG_ROUTE} answers when the catalog could not be read at all. */
+export interface CatalogErrorResponse extends CatalogHostState {
+  /** Why the catalog could not be read. */
+  readonly error: string
 }
 
 /** What {@link RESTART_ROUTE} answers. */

@@ -2,6 +2,16 @@
 
 All notable changes to `dsh-research` are recorded here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [SemVer](https://semver.org/).
 
+## [0.4.8] - 2026-11-25
+
+### Fixed
+- Answer a feed that cannot be reached with the snapshot the last successful read kept on disk (`<DSH_HOME>/data/dsh-research/`). The cache behind "a stale list still lets someone install" lived in memory alone, so on the first panel opened after a host restart there was nothing to fall back on, and a few bad minutes on the route to the catalog left an empty panel.
+- Send what the host knows about itself — which profile, what is installed, whether the native manager applies changes — with a failed catalog read as well. None of it comes from the network, and without it a Desktop that could not read the catalog showed the Web-only restart button.
+- Say why the catalog could not be read: a feed that did not answer within the deadline, a name that does not resolve, a refused or reset connection — instead of `This operation was aborted`.
+
+### Changed
+- A native plugin manager that cannot list the profile's bundles no longer fails the catalog with it; the installed state is read from the profile manifest instead.
+
 ## [0.4.7] - 2026-11-23
 
 ### Fixed

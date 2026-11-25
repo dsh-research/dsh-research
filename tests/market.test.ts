@@ -1,7 +1,12 @@
-import { afterEach, describe, expect, it } from 'vitest'
-import { Config, apply, argvProfile, attachedToTerminal, installSpec, modulePathProfile, normalizeCatalog, pluginArgs, quoteCmdArg, resolveProfile, restartCommand, spawnEnv, trustedRestartRequest } from '../src/index.js'
-import { MarketController, PROBE_INTERVAL_MS, filterItems, installCommand, versionNewer } from '../src/client/index.js'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import type { IncomingMessage, ServerResponse } from 'node:http'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { CATALOG_URL, CATALOG_URL_ZH, Config, apply, argvProfile, attachedToTerminal, fetchFailure, installSpec, modulePathProfile, normalizeCatalog, pluginArgs, quoteCmdArg, resolveProfile, restartCommand, spawnEnv, trustedRestartRequest } from '../src/index.js'
+import { MarketController, PROBE_INTERVAL_MS, fetchCatalogRoute, filterItems, installCommand, versionNewer } from '../src/client/index.js'
 import { failureText, requestInstall, requestRemove } from '../src/client/store.js'
+import { readSnapshot, snapshotPath, writeSnapshot } from '../src/snapshot.js'
 import type { CatalogResponse, InstallResponse, MarketItem, RestartResponse } from '../src/index.js'
 
 const PAGE = {
@@ -612,40 +617,54 @@ describe('which profile the panel decides it is running in', () => {
   })
 })
 
-describe('the routes the plugin puts on the web server', () => {
-  /**
-   * Mount the plugin against a route table the caller owns.
-   *
-   * The web server owns that table, not the plugin, so sharing one across two
-   * mounts is what makes a remount collision reproducible.
-   * @param routes - the host's route table.
-   * @param config - plugin config; defaults come from the schema.
-   * @returns a disposer that tears the fiber down the way cordis does on unload.
-   */
-  function mount(routes: Map<string, unknown>, config: Partial<Config> = {}): () => void {
-    const effects: (() => void)[] = []
-    const webServer = {
-      register(route: { kind: string; path: string }) {
-        if (routes.has(route.path)) throw new Error(`webserver: duplicate ${route.kind} route "${route.path}"`)
-        routes.set(route.path, route)
-        return () => routes.delete(route.path)
-      },
-    }
-    const ctx = {
-      effect(body: () => (() => void) | void) {
-        const disposer = body()
-        if (typeof disposer === 'function') effects.push(disposer)
-        return () => undefined
-      },
-      inject(_deps: string[], callback: (child: unknown) => void) {
-        if (!_deps.includes('webServer')) return
-        callback({ ...ctx, webServer })
-      },
-    } as unknown as Parameters<typeof apply>[0]
-    apply(ctx, new Config(config))
-    return () => { while (effects.length > 0) effects.pop()?.() }
+/**
+ * Mount the plugin against a route table the caller owns.
+ *
+ * The web server owns that table, not the plugin, so sharing one across two
+ * mounts is what makes a remount collision reproducible.
+ * @param routes - the host's route table.
+ * @param config - plugin config; defaults come from the schema.
+ * @returns a disposer that tears the fiber down the way cordis does on unload.
+ */
+function mount(routes: Map<string, unknown>, config: Partial<Config> = {}): () => void {
+  const effects: (() => void)[] = []
+  const webServer = {
+    register(route: { kind: string; path: string }) {
+      if (routes.has(route.path)) throw new Error(`webserver: duplicate ${route.kind} route "${route.path}"`)
+      routes.set(route.path, route)
+      return () => routes.delete(route.path)
+    },
   }
+  const ctx = {
+    effect(body: () => (() => void) | void) {
+      const disposer = body()
+      if (typeof disposer === 'function') effects.push(disposer)
+      return () => undefined
+    },
+    inject(_deps: string[], callback: (child: unknown) => void) {
+      if (!_deps.includes('webServer')) return
+      callback({ ...ctx, webServer })
+    },
+  } as unknown as Parameters<typeof apply>[0]
+  apply(ctx, new Config(config))
+  return () => { while (effects.length > 0) effects.pop()?.() }
+}
 
+/** Call a registered GET route the way the web server does. */
+async function call(routes: Map<string, unknown>, path: string): Promise<{ status: number; body: Record<string, unknown> }> {
+  let status = 0
+  const chunks: Buffer[] = []
+  const response = {
+    writeHead(code: number) { status = code },
+    end(chunk?: string) { if (chunk !== undefined) chunks.push(Buffer.from(chunk)) },
+  }
+  const route = routes.get(new URL(path, 'http://localhost').pathname) as { handler: (request: IncomingMessage, response: ServerResponse) => Promise<void> } | undefined
+  if (route === undefined) throw new Error(`no route answers ${path}`)
+  await route.handler({ method: 'GET', url: path } as IncomingMessage, response as unknown as ServerResponse)
+  return { status, body: JSON.parse(Buffer.concat(chunks).toString('utf8')) as Record<string, unknown> }
+}
+
+describe('the routes the plugin puts on the web server', () => {
   it('gives every route back when the fiber unloads', () => {
     // A discarded disposer left the dead fiber's routes registered, so the next
     // mount died on `webserver: duplicate exact route "…"`. Four routes here, and
@@ -675,6 +694,211 @@ describe('the routes the plugin puts on the web server', () => {
     const noRestart = new Map<string, unknown>()
     mount(noRestart, { allowRestart: false })
     expect([...noRestart.keys()]).not.toContain('/research-market/restart')
+  })
+})
+
+describe('reading the catalog route', () => {
+  const realFetch = globalThis.fetch
+  const realHome = process.env['DSH_HOME']
+  let home = ''
+
+  beforeEach(() => {
+    home = mkdtempSync(join(tmpdir(), 'dsh-research-home-'))
+    process.env['DSH_HOME'] = home
+  })
+  afterEach(() => {
+    globalThis.fetch = realFetch
+    if (realHome === undefined) delete process.env['DSH_HOME']
+    else process.env['DSH_HOME'] = realHome
+    rmSync(home, { recursive: true, force: true })
+  })
+
+  /** Make every fetch fail the way Node reports a host that is not there. */
+  function unreachable(): void {
+    globalThis.fetch = (async () => {
+      throw new TypeError('fetch failed', { cause: Object.assign(new Error('getaddrinfo ENOTFOUND dsh-research.com'), { code: 'ENOTFOUND' }) })
+    }) as typeof globalThis.fetch
+  }
+
+  /** Make every fetch hang until the route's own deadline gives up on it. */
+  function silent(): void {
+    globalThis.fetch = ((_input: string, init?: RequestInit) => new Promise<Response>((_resolve, reject) => {
+      init?.signal?.addEventListener('abort', () => reject(new DOMException('This operation was aborted', 'AbortError')))
+    })) as typeof globalThis.fetch
+  }
+
+  /** Answer with the feed, the way the provider does. */
+  function feeds(): void {
+    globalThis.fetch = (async () => new Response(JSON.stringify(PAGE), {
+      status: 200, headers: { 'content-type': 'application/json' },
+    })) as typeof globalThis.fetch
+  }
+
+  it('answers with the snapshot the last run kept when the feed cannot be reached', async () => {
+    // The route's rule is that a stale list still lets someone install. The
+    // cache behind it lived in memory, so on the first panel after a restart
+    // the rule had nothing to draw on and the panel was an error.
+    writeSnapshot(snapshotPath('en'), { url: CATALOG_URL, at: Date.now() - 3_600_000, body: PAGE })
+    unreachable()
+    const routes = new Map<string, unknown>()
+    mount(routes, { timeoutMs: 50 })
+    const { status, body } = await call(routes, '/research-market/catalog')
+    expect(status).toBe(200)
+    expect(body['stale']).toBe(true)
+    expect((body['items'] as { npm?: string }[]).map((item) => item.npm)).toEqual(['dsh-ai4scholar'])
+  })
+
+  it('serves a snapshot from the last run without asking the network again', async () => {
+    writeSnapshot(snapshotPath('en'), { url: CATALOG_URL, at: Date.now(), body: PAGE })
+    unreachable()
+    const routes = new Map<string, unknown>()
+    mount(routes, { timeoutMs: 50 })
+    const { status, body } = await call(routes, '/research-market/catalog')
+    expect(status).toBe(200)
+    expect(body['stale']).toBeUndefined()
+    expect((body['items'] as unknown[]).length).toBe(1)
+  })
+
+  it('keeps a feed it just read, for the next cold start', async () => {
+    feeds()
+    const routes = new Map<string, unknown>()
+    mount(routes, { timeoutMs: 50 })
+    expect((await call(routes, '/research-market/catalog')).status).toBe(200)
+    expect(readSnapshot(snapshotPath('en'))).toEqual({ url: CATALOG_URL, at: expect.any(Number), body: PAGE })
+  })
+
+  it('keeps each feed under its own name', async () => {
+    feeds()
+    const routes = new Map<string, unknown>()
+    mount(routes, { timeoutMs: 50 })
+    await call(routes, '/research-market/catalog?lang=zh')
+    expect(readSnapshot(snapshotPath('zh'))?.url).toBe(CATALOG_URL_ZH)
+    expect(readSnapshot(snapshotPath('en'))).toBeUndefined()
+  })
+
+  it('does not pass a snapshot of another feed off as this one', async () => {
+    // Pointing the panel at a different endpoint must not leave the old one's
+    // entries installable whenever the new one cannot be reached.
+    writeSnapshot(snapshotPath('en'), { url: 'https://example.com/market.json', at: Date.now(), body: PAGE })
+    unreachable()
+    const routes = new Map<string, unknown>()
+    mount(routes, { timeoutMs: 50 })
+    expect((await call(routes, '/research-market/catalog')).status).toBe(502)
+  })
+
+  it('drops a snapshot that is no longer a provider page', async () => {
+    writeSnapshot(snapshotPath('en'), { url: CATALOG_URL, at: Date.now(), body: { items: 'not a list' } })
+    unreachable()
+    const routes = new Map<string, unknown>()
+    mount(routes, { timeoutMs: 50 })
+    expect((await call(routes, '/research-market/catalog')).status).toBe(502)
+  })
+
+  it('names the host and its bundles when there is no snapshot to fall back on', async () => {
+    // Whether this panel may offer a restart, and which rows it marks
+    // installed, depends on these fields and on nothing the catalog says.
+    mkdirSync(join(home, 'profiles', 'web'), { recursive: true })
+    writeFileSync(join(home, 'profiles', 'web', 'package.json'), JSON.stringify({ dsh: { profile: { bundles: ['dsh-ai4scholar'] } } }))
+    unreachable()
+    const routes = new Map<string, unknown>()
+    mount(routes, { timeoutMs: 50 })
+    const { status, body } = await call(routes, '/research-market/catalog')
+    expect(status).toBe(502)
+    expect(body).toMatchObject({
+      error: 'catalog unavailable: cannot resolve dsh-research.com',
+      installed: ['dsh-ai4scholar'], profile: 'web', nativeManagement: false, allowRestart: true,
+    })
+  })
+
+  it('says when the feed did not answer in time, not that something was aborted', async () => {
+    // "This operation was aborted" is what the reader saw: true, and no help
+    // in deciding whether to wait, to retry, or to look at the network.
+    silent()
+    const routes = new Map<string, unknown>()
+    mount(routes, { timeoutMs: 20 })
+    const { status, body } = await call(routes, '/research-market/catalog')
+    expect(status).toBe(502)
+    expect(body['error']).toBe('catalog unavailable: no answer from dsh-research.com within 0.02 s')
+  })
+})
+
+describe('why a catalog fetch failed', () => {
+  const failed = (code: string): TypeError =>
+    new TypeError('fetch failed', { cause: Object.assign(new Error('connect failed'), { code }) })
+
+  it('blames the deadline when the deadline ended the attempt', () => {
+    expect(fetchFailure(new DOMException('This operation was aborted', 'AbortError'), CATALOG_URL, true, 8000))
+      .toBe('no answer from dsh-research.com within 8 s')
+  })
+
+  it('names what the network said, not the wrapper fetch put it in', () => {
+    expect(fetchFailure(failed('ENOTFOUND'), CATALOG_URL, false, 8000)).toBe('cannot resolve dsh-research.com')
+    expect(fetchFailure(failed('ECONNREFUSED'), CATALOG_URL, false, 8000)).toBe('dsh-research.com refused the connection')
+    expect(fetchFailure(failed('ECONNRESET'), CATALOG_URL, false, 8000)).toBe('the connection to dsh-research.com was reset')
+    expect(fetchFailure(failed('UND_ERR_CONNECT_TIMEOUT'), CATALOG_URL, false, 8000)).toBe('the connection to dsh-research.com timed out')
+    expect(fetchFailure(failed('DEPTH_ZERO_SELF_SIGNED_CERT'), CATALOG_URL, false, 8000))
+      .toBe('the certificate of dsh-research.com was rejected')
+    expect(fetchFailure(failed('UND_ERR_SOCKET'), CATALOG_URL, false, 8000)).toBe('cannot reach dsh-research.com (UND_ERR_SOCKET)')
+  })
+
+  it('keeps the reasons that were the route\'s own', () => {
+    expect(fetchFailure(new Error(`${CATALOG_URL} answered 503`), CATALOG_URL, false, 8000)).toBe(`${CATALOG_URL} answered 503`)
+    expect(fetchFailure(new SyntaxError('Unexpected token < in JSON at position 0'), CATALOG_URL, false, 8000))
+      .toBe('Unexpected token < in JSON at position 0')
+    expect(fetchFailure('a string', CATALOG_URL, false, 8000)).toBe('a string')
+    expect(fetchFailure(new TypeError('fetch failed'), CATALOG_URL, false, 8000)).toBe('cannot reach dsh-research.com')
+    // A port fetch itself refuses is reported with no code at all.
+    expect(fetchFailure(new TypeError('fetch failed', { cause: new Error('bad port') }), CATALOG_URL, false, 8000))
+      .toBe('cannot reach dsh-research.com (bad port)')
+  })
+})
+
+describe('a catalog the host could not read', () => {
+  const realFetch = globalThis.fetch
+  afterEach(() => { globalThis.fetch = realFetch })
+
+  /** Answer the catalog route the way the host does when the feed is unreachable. */
+  function catalogFails(payload: Record<string, unknown>): void {
+    globalThis.fetch = (async () => new Response(JSON.stringify(payload), {
+      status: 502, headers: { 'content-type': 'application/json' },
+    })) as typeof globalThis.fetch
+  }
+
+  it('still tells the panel which host it is on', async () => {
+    // Desktop offers no restart from this panel, and installs go through a
+    // different route there. The route used to send both facts with the
+    // catalog alone, so a catalog that could not be read showed a Web-only
+    // restart button on Desktop.
+    catalogFails({
+      error: 'catalog unavailable: no answer from dsh-research.com within 8 s',
+      installed: ['dsh-ai4scholar', 'dsh-plotfig'], installedVersions: { 'dsh-ai4scholar': '0.3.3' },
+      nativeManagement: true, allowInstall: true, allowRestart: true,
+      profile: 'desktop', attached: false, restartCommand: 'open -a Harness',
+    })
+    const controller = new MarketController()
+    await controller.refresh()
+    expect(controller.state()).toMatchObject({
+      error: 'catalog unavailable: no answer from dsh-research.com within 8 s',
+      loading: false, items: [], nativeManagement: true, profile: 'desktop',
+      installed: ['dsh-ai4scholar', 'dsh-plotfig'], installedVersions: { 'dsh-ai4scholar': '0.3.3' },
+      restartCommand: 'open -a Harness',
+    })
+  })
+
+  it('throws the host state on the error, for whoever catches it', async () => {
+    catalogFails({ error: 'catalog unavailable: x', installed: [], installedVersions: {}, profile: 'desktop' })
+    await expect(fetchCatalogRoute('en')).rejects.toMatchObject({
+      name: 'CatalogUnavailable', message: 'catalog unavailable: x', host: { profile: 'desktop' },
+    })
+  })
+
+  it('leaves the defaults alone when an older host sends only the reason', async () => {
+    catalogFails({ error: 'catalog unavailable: x' })
+    const controller = new MarketController()
+    await controller.refresh()
+    expect(controller.state()).toMatchObject({
+      error: 'catalog unavailable: x', loading: false, nativeManagement: false, profile: '', installed: [],
+    })
   })
 })
 

@@ -13,6 +13,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { Context } from '@deepseek-ai/cordis'
 import { applyNativeManagement } from './native-management.js'
+import { normalizeCatalog } from './catalog.js'
 import Schema from '@deepseek-ai/schemastery'
 // Type-only: the Context merge declaring `ctx.webServer`.
 import type { WebRoute } from '@deepseek-ai/dsh-host-webserver'
@@ -20,11 +21,12 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { homedir } from 'node:os'
 import { CATALOG_ROUTE, CATALOG_URL, CATALOG_URL_ZH, INSTALL_ROUTE, REMOVE_ROUTE, RESTART_ROUTE } from './shared/route.js'
-import type { CatalogPage, CatalogResponse, InstallResponse, MarketItem, RestartResponse } from './shared/route.js'
+import type { CatalogErrorResponse, CatalogHostState, CatalogPage, CatalogResponse, InstallResponse, MarketItem, RestartResponse } from './shared/route.js'
+import { readSnapshot, snapshotPath, writeSnapshot } from './snapshot.js'
 import { attachedToTerminal, installPackage, installSpec, removePackage, resolveProfile, restartCommand, scheduleRestart, trustedRestartRequest } from './install.js'
 
 export { CATALOG_ROUTE, CATALOG_URL, CATALOG_URL_ZH, INSTALL_ROUTE, REMOVE_ROUTE, RESTART_ROUTE } from './shared/route.js'
-export type { CatalogPage, CatalogResponse, InstallResponse, MarketItem, RestartResponse } from './shared/route.js'
+export type { CatalogErrorResponse, CatalogHostState, CatalogPage, CatalogResponse, InstallResponse, MarketItem, RestartResponse } from './shared/route.js'
 export { normalizeCatalog } from './catalog.js'
 export { argvProfile, attachedToTerminal, dshArgv, installPackage, installSpec, modulePathProfile, pluginArgs, profileDir, quoteCmdArg, removePackage, resolveProfile, restartCommand, scheduleRestart, spawnEnv, trustedRestartRequest } from './install.js'
 export type { DshInvocation, InstallOutcome, RestartOutcome } from './install.js'
@@ -92,15 +94,36 @@ export function apply(ctx: Context, config: Config): void {
   // same package.json and can leave the profile half-written.
   let installing: string | undefined
   const profile = resolveProfile(resolved.profile)
+  /** The feed a language reads. */
+  const feedUrl = (lang: string): string => lang === 'zh' ? resolved.catalogUrlZh : resolved.catalogUrl
+
+  // Start from what the last run kept, so "stale" is an option on a cold host
+  // too. The body goes through the same checks as a fresh answer; one that
+  // fails them is dropped here, and the fetch below is the only way back.
+  for (const lang of ['en', 'zh']) {
+    const saved = readSnapshot(snapshotPath(lang))
+    // A snapshot of another feed is not this feed's stale copy.
+    if (saved === undefined || saved.url !== feedUrl(lang)) continue
+    try {
+      // A clock that was moved back dates a snapshot in the future, which
+      // would read as fresh for as long as it stays ahead. It was taken now
+      // at the earliest.
+      cached.set(lang, { at: Math.min(saved.at, Date.now()), value: normalizeCatalog(saved.body) })
+    } catch {
+      // No longer a provider page; a fresh fetch replaces it.
+    }
+  }
 
   const catalog = async (lang: string): Promise<CatalogPage> => {
     const now = Date.now()
-    const url = lang === 'zh' ? resolved.catalogUrlZh : resolved.catalogUrl
+    const url = feedUrl(lang)
     const hit = cached.get(lang)
     if (hit !== undefined && now - hit.at < resolved.cacheSeconds * 1000) return hit.value
     try {
-      const fresh = await fetchCatalog(url, resolved.timeoutMs)
+      const body = await fetchCatalog(url, resolved.timeoutMs)
+      const fresh = normalizeCatalog(body)
       cached.set(lang, { at: now, value: fresh })
+      writeSnapshot(snapshotPath(lang), { url, at: now, body })
       return fresh
     } catch (cause) {
       // A stale list still lets someone install; an error page does not.
@@ -119,6 +142,34 @@ export function apply(ctx: Context, config: Config): void {
       return [...cached.values()].flatMap(page => page.value.items)
     },
   })
+
+  /**
+   * What this host runs and permits. Nothing here comes from the network, so
+   * the route reads it whether or not the catalog can be fetched.
+   */
+  const hostState = async (): Promise<CatalogHostState> => {
+    // The manager is the better source. One that cannot answer is not a reason
+    // to hide what the profile manifest says about the same bundles.
+    const bundles = native.manager === undefined
+      ? undefined
+      : await native.manager.listBundles().catch(() => undefined)
+    const versions: Record<string, string> = {}
+    // A bundle the manager lists without a version has no entry, same as one
+    // whose package has not materialized on disk.
+    for (const bundle of bundles ?? []) {
+      if (bundle.version !== undefined) versions[bundle.name] = bundle.version
+    }
+    return {
+      installed: bundles === undefined ? installedBundles(profile) : bundles.filter(b => b.installed || b.enabled).map(b => b.name),
+      installedVersions: bundles === undefined ? installedVersionsOf(profile) : versions,
+      nativeManagement: native.manager !== undefined,
+      allowInstall: resolved.allowInstall,
+      allowRestart: resolved.allowRestart,
+      profile,
+      attached: attachedToTerminal(),
+      restartCommand: restartCommand(),
+    }
+  }
 
   ctx.inject(['webServer'], (webCtx) => {
     // The web server owns one route table and throws on a duplicate (kind, path),
@@ -142,23 +193,16 @@ export function apply(ctx: Context, config: Config): void {
           return
         }
         const lang = new URL(request.url ?? '/', 'http://localhost').searchParams.get('lang') === 'zh' ? 'zh' : 'en'
+        // Read first: what this machine has does not depend on a remote feed,
+        // and a panel that cannot list the catalog still has to know which
+        // host it is on before it offers a restart button.
+        const host = await hostState()
         try {
-          const value = await catalog(lang)
-          const bundles = native.manager === undefined ? undefined : await native.manager.listBundles()
-          sendJson(response, 200, {
-            ...value,
-            installed: bundles === undefined ? installedBundles(profile) : bundles.filter(b => b.installed || b.enabled).map(b => b.name),
-            installedVersions: bundles === undefined ? installedVersionsOf(profile) : Object.fromEntries(bundles.filter(b => b.version !== undefined).map(b => [b.name, b.version])),
-            nativeManagement: native.manager !== undefined,
-            allowInstall: resolved.allowInstall,
-            allowRestart: resolved.allowRestart,
-            profile,
-            attached: attachedToTerminal(),
-            restartCommand: restartCommand(),
-          })
+          sendJson(response, 200, { ...await catalog(lang), ...host })
         } catch (cause) {
           const message = cause instanceof Error ? cause.message : String(cause)
-          sendJson(response, 502, { error: `catalog unavailable: ${message}` })
+          const answer: CatalogErrorResponse = { error: `catalog unavailable: ${message}`, ...host }
+          sendJson(response, 502, answer)
         }
       },
     })
@@ -386,18 +430,92 @@ function sendJson(response: ServerResponse, status: number, payload: unknown): v
   response.end(JSON.stringify(payload))
 }
 
-/** Fetch and normalize one catalog page. */
-async function fetchCatalog(url: string, timeoutMs: number): Promise<CatalogPage> {
+/**
+ * Fetch one catalog feed, or fail with the reason a reader can act on.
+ * @param url - the feed.
+ * @param timeoutMs - how long the whole exchange may take.
+ * @returns the parsed provider body.
+ * @throws Error saying what went wrong; see {@link fetchFailure}.
+ */
+async function fetchCatalog(url: string, timeoutMs: number): Promise<unknown> {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), timeoutMs)
   try {
     const res = await fetch(url, { signal: controller.signal, headers: { accept: 'application/json' } })
     if (!res.ok) throw new Error(`${url} answered ${res.status}`)
-    const { normalizeCatalog } = await import('./catalog.js')
-    return normalizeCatalog(await res.json() as unknown)
+    return await res.json() as unknown
+  } catch (cause) {
+    throw new Error(fetchFailure(cause, url, controller.signal.aborted, timeoutMs), { cause })
   } finally {
     clearTimeout(timer)
   }
+}
+
+/** What a network error code means to a reader, keyed by the code Node reports. */
+const REASONS: Readonly<Record<string, (host: string) => string>> = {
+  ENOTFOUND: (host) => `cannot resolve ${host}`,
+  EAI_AGAIN: (host) => `cannot resolve ${host}`,
+  ECONNREFUSED: (host) => `${host} refused the connection`,
+  ECONNRESET: (host) => `the connection to ${host} was reset`,
+  ETIMEDOUT: (host) => `the connection to ${host} timed out`,
+  UND_ERR_CONNECT_TIMEOUT: (host) => `the connection to ${host} timed out`,
+}
+
+/**
+ * Why a catalog fetch failed, in the words a reader can act on.
+ *
+ * `fetch` reports a timeout as `This operation was aborted` and an unreachable
+ * host as `fetch failed`, and the panel prints the message verbatim. Neither
+ * says whether to wait, to look at the network, or to check a name — which is
+ * everything a person reading the panel needs to know.
+ * @param cause - what the fetch rejected with.
+ * @param url - the feed that was asked.
+ * @param timedOut - whether our own deadline, not the network, ended the attempt.
+ * @param timeoutMs - that deadline.
+ * @returns the reason.
+ */
+export function fetchFailure(cause: unknown, url: string, timedOut: boolean, timeoutMs: number): string {
+  const host = hostOf(url)
+  if (timedOut) return `no answer from ${host} within ${timeoutMs / 1000} s`
+  const code = errorCode(cause)
+  if (code !== undefined) {
+    // The server's certificate was refused. From the panel that is otherwise
+    // indistinguishable from a network failure.
+    if (code.includes('CERT')) return `the certificate of ${host} was rejected`
+    const reason = REASONS[code]
+    if (reason !== undefined) return reason(host)
+    return `cannot reach ${host} (${code})`
+  }
+  // Left: an answer that was not the feed's (see `fetchCatalog`), a body that
+  // is not JSON, or a `fetch failed` with nothing recognizable under it. Those
+  // keep the wording they arrived with.
+  if (!(cause instanceof Error)) return String(cause)
+  if (cause.message !== 'fetch failed') return cause.message
+  // The wrapper says only that fetch failed; the error under it says how.
+  const under = cause.cause
+  return under instanceof Error && under.message !== ''
+    ? `cannot reach ${host} (${under.message})`
+    : `cannot reach ${host}`
+}
+
+/** The `host[:port]` a feed was asked of, or the URL itself when it does not parse. */
+function hostOf(url: string): string {
+  try {
+    return new URL(url).host
+  } catch {
+    return url
+  }
+}
+
+/** The error code of a failed fetch, on the error itself or on the one it wraps. */
+function errorCode(cause: unknown): string | undefined {
+  let current = cause
+  for (let depth = 0; depth < 3 && typeof current === 'object' && current !== null; depth += 1) {
+    const code = (current as { code?: unknown }).code
+    if (typeof code === 'string') return code
+    current = (current as { cause?: unknown }).cause
+  }
+  return undefined
 }
 
 export type { MarketItem as CatalogItem }
